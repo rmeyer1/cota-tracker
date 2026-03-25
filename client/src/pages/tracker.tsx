@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import BusMap from "@/components/BusMap";
+import BusMap, { type MapControls } from "@/components/BusMap";
 import ETAPanel from "@/components/ETAPanel";
 import RouteSelector from "@/components/RouteSelector";
 import { useUserLocation } from "@/hooks/use-location";
@@ -20,6 +20,9 @@ import {
   ChevronUp,
   ChevronDown,
   Locate,
+  Plus,
+  Minus,
+  Crosshair,
 } from "lucide-react";
 
 export default function TrackerPage() {
@@ -27,6 +30,7 @@ export default function TrackerPage() {
   const { theme, toggleTheme } = useTheme();
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
+  const [mapControls, setMapControls] = useState<MapControls | null>(null);
 
   // Fetch all routes
   const { data: routesData } = useQuery<{
@@ -202,12 +206,49 @@ export default function TrackerPage() {
               selectedRouteId={selectedRouteId}
               theme={theme}
               routeColorMap={routeColorMap}
+              onMapReady={setMapControls}
             />
+          )}
+
+          {/* Floating map controls — large touch targets for mobile */}
+          {mapControls && (
+            <div
+              className="absolute right-3 top-3 z-[1000] flex flex-col gap-2"
+              data-testid="map-controls"
+            >
+              {/* Zoom in */}
+              <button
+                onClick={() => mapControls.zoomIn()}
+                className="w-11 h-11 rounded-xl bg-card border border-border shadow-lg flex items-center justify-center active:scale-95 transition-transform hover:bg-muted"
+                data-testid="zoom-in-btn"
+                aria-label="Zoom in"
+              >
+                <Plus className="w-5 h-5" />
+              </button>
+              {/* Zoom out */}
+              <button
+                onClick={() => mapControls.zoomOut()}
+                className="w-11 h-11 rounded-xl bg-card border border-border shadow-lg flex items-center justify-center active:scale-95 transition-transform hover:bg-muted"
+                data-testid="zoom-out-btn"
+                aria-label="Zoom out"
+              >
+                <Minus className="w-5 h-5" />
+              </button>
+              {/* Re-center on user */}
+              <button
+                onClick={() => mapControls.recenter()}
+                className="w-11 h-11 rounded-xl bg-card border border-border shadow-lg flex items-center justify-center active:scale-95 transition-transform hover:bg-muted"
+                data-testid="recenter-btn"
+                aria-label="Center on my location"
+              >
+                <Crosshair className="w-5 h-5 text-primary" />
+              </button>
+            </div>
           )}
 
           {/* Mobile bottom sheet toggle */}
           <button
-            className="absolute bottom-4 left-1/2 -translate-x-1/2 md:hidden z-[1000] bg-card border border-border rounded-full px-4 py-2 shadow-lg flex items-center gap-2"
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 md:hidden z-[1000] bg-card border border-border rounded-full px-4 py-2.5 shadow-lg flex items-center gap-2"
             onClick={() => setPanelOpen(!panelOpen)}
             data-testid="toggle-panel"
           >
@@ -216,7 +257,7 @@ export default function TrackerPage() {
             ) : (
               <ChevronUp className="w-4 h-4" />
             )}
-            <span className="text-xs font-medium">
+            <span className="text-sm font-medium">
               {panelOpen ? "Hide" : "Nearby Buses"}
             </span>
           </button>

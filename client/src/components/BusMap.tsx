@@ -22,6 +22,12 @@ interface RouteShape {
   points: { lat: number; lon: number }[];
 }
 
+export interface MapControls {
+  zoomIn: () => void;
+  zoomOut: () => void;
+  recenter: () => void;
+}
+
 interface BusMapProps {
   vehicles: Vehicle[];
   routeShapes: RouteShape[];
@@ -30,6 +36,7 @@ interface BusMapProps {
   onVehicleClick?: (vehicle: Vehicle) => void;
   theme: "light" | "dark";
   routeColorMap: Map<string, string>;
+  onMapReady?: (controls: MapControls) => void;
 }
 
 // Tracked state per vehicle for smooth animation
@@ -94,6 +101,7 @@ export default function BusMap({
   onVehicleClick,
   theme,
   routeColorMap,
+  onMapReady,
 }: BusMapProps) {
   const mapRef = useRef<L.Map | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -117,10 +125,23 @@ export default function BusMap({
       zoom: 13,
       zoomControl: false,
       attributionControl: true,
+      // Ensure touch zoom works well on mobile
+      touchZoom: true,
+      bounceAtZoomLimits: true,
     });
 
-    L.control.zoom({ position: "bottomright" }).addTo(map);
     mapRef.current = map;
+
+    // Expose controls to parent
+    onMapReady?.({
+      zoomIn: () => map.zoomIn(),
+      zoomOut: () => map.zoomOut(),
+      recenter: () => {
+        if (userLocation) {
+          map.flyTo([userLocation.latitude, userLocation.longitude], 15, { duration: 0.8 });
+        }
+      },
+    });
 
     return () => {
       cancelAnimationFrame(rafRef.current);
