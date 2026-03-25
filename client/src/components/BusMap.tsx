@@ -28,6 +28,17 @@ export interface MapControls {
   recenter: () => void;
 }
 
+export interface TrafficIncident {
+  id: string;
+  latitude: number;
+  longitude: number;
+  description: string;
+  roadName: string;
+  severity: string;
+  type: string;
+  isRoadClosed: boolean;
+}
+
 interface BusMapProps {
   vehicles: Vehicle[];
   routeShapes: RouteShape[];
@@ -37,6 +48,7 @@ interface BusMapProps {
   theme: "light" | "dark";
   routeColorMap: Map<string, string>;
   onMapReady?: (controls: MapControls) => void;
+  trafficIncidents?: TrafficIncident[];
 }
 
 // Tracked state per vehicle for smooth animation
@@ -102,11 +114,13 @@ export default function BusMap({
   theme,
   routeColorMap,
   onMapReady,
+  trafficIncidents = [],
 }: BusMapProps) {
   const mapRef = useRef<L.Map | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const trackedRef = useRef<Map<string, TrackedVehicle>>(new Map());
   const shapeLayersRef = useRef<L.Polyline[]>([]);
+  const incidentMarkersRef = useRef<L.Marker[]>([]);
   const userMarkerRef = useRef<L.Marker | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const initialSetRef = useRef(false);
@@ -305,6 +319,48 @@ export default function BusMap({
       }
     });
   }, [vehicles, selectedRouteId, routeColorMap, onVehicleClick]);
+
+  // Traffic incident markers
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // Remove old incident markers
+    incidentMarkersRef.current.forEach((m) => map.removeLayer(m));
+    incidentMarkersRef.current = [];
+
+    trafficIncidents.forEach((incident) => {
+      const isClosed = incident.isRoadClosed;
+      const icon = L.divIcon({
+        className: "",
+        html: `<div class="traffic-incident-marker ${isClosed ? 'road-closed' : ''}" title="${incident.description.replace(/"/g, '&quot;')}">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <polygon points="12,2 22,20 2,20" fill="${isClosed ? '#EF4444' : '#F59E0B'}" stroke="white" stroke-width="1.5"/>
+            <text x="12" y="17" text-anchor="middle" font-size="12" font-weight="900" fill="white">!</text>
+          </svg>
+        </div>`,
+        iconSize: [24, 24],
+        iconAnchor: [12, 20],
+      });
+
+      const marker = L.marker([incident.latitude, incident.longitude], {
+        icon,
+        zIndexOffset: 400,
+      })
+        .addTo(map)
+        .bindPopup(
+          `<div style="font-family:var(--font-sans);font-size:13px;max-width:220px;">
+            <div style="font-weight:700;font-size:13px;color:${isClosed ? '#EF4444' : '#F59E0B'};">
+              ${isClosed ? '🚧 Road Closed' : '⚠️ Traffic Incident'}
+            </div>
+            <div style="font-weight:600;margin-top:2px;">${incident.roadName}</div>
+            <div style="color:#888;margin-top:4px;font-size:12px;">${incident.description}</div>
+          </div>`
+        );
+
+      incidentMarkersRef.current.push(marker);
+    });
+  }, [trafficIncidents]);
 
   // Animation loop — runs continuously, smoothly interpolating all markers
   useEffect(() => {

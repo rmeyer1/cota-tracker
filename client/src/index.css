@@ -167,6 +167,22 @@
   z-index: 2000 !important;
 }
 
+/* Traffic incident markers */
+.traffic-incident-marker {
+  cursor: pointer;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.3));
+  transition: transform 0.15s ease;
+}
+
+.traffic-incident-marker:hover {
+  transform: scale(1.25);
+  z-index: 1500 !important;
+}
+
+.traffic-incident-marker.road-closed {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
 /* User location marker */
 .user-marker {
   width: 16px;

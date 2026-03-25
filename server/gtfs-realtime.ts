@@ -3,6 +3,7 @@ import path from "path";
 
 const VEHICLE_POSITIONS_URL = "https://gtfs-rt.cota.vontascloud.com/TMGTFSRealTimeWebService/Vehicle/VehiclePositions.pb";
 const TRIP_UPDATES_URL = "https://gtfs-rt.cota.vontascloud.com/TMGTFSRealTimeWebService/TripUpdate/TripUpdates.pb";
+const ALERTS_URL = "https://gtfs-rt.cota.vontascloud.com/TMGTFSRealTimeWebService/Alert/Alerts.pb";
 
 export interface VehiclePosition {
   vehicleId: string;
@@ -30,6 +31,17 @@ export interface StopTimeUpdate {
   stopSequence: number;
   arrivalDelay: number;
   departureDelay: number;
+}
+
+export interface ServiceAlert {
+  id: string;
+  headerText: string;
+  descriptionText: string;
+  cause: string;
+  effect: string;
+  routeIds: string[];
+  stopIds: string[];
+  activePeriods: { start: number; end: number }[];
 }
 
 // Load GTFS-RT proto
@@ -225,6 +237,7 @@ message TranslatedString {
 // In-memory cache
 let cachedVehicles: VehiclePosition[] = [];
 let cachedTripUpdates: TripUpdate[] = [];
+let cachedAlerts: ServiceAlert[] = [];
 let lastFetchTime = 0;
 
 export async function fetchVehiclePositions(): Promise<VehiclePosition[]> {
@@ -322,8 +335,77 @@ export function getCachedTripUpdates(): TripUpdate[] {
   return cachedTripUpdates;
 }
 
+export function getCachedAlerts(): ServiceAlert[] {
+  return cachedAlerts;
+}
+
 export function getLastFetchTime(): number {
   return lastFetchTime;
+}
+
+export async function fetchServiceAlerts(): Promise<ServiceAlert[]> {
+  try {
+    const proto = await getProto();
+    const FeedMessage = proto.lookupType("transit_realtime.FeedMessage");
+    
+    const response = await fetch(ALERTS_URL);
+    if (!response.ok) {
+      console.error(`[GTFS-RT] Alerts fetch failed: ${response.status}`);
+      return cachedAlerts;
+    }
+    
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const decoded = FeedMessage.decode(buffer) as any;
+    
+    const causeMap: Record<number, string> = {
+      1: "UNKNOWN", 2: "OTHER", 3: "TECHNICAL_PROBLEM", 4: "STRIKE",
+      5: "DEMONSTRATION", 6: "ACCIDENT", 7: "HOLIDAY", 8: "WEATHER",
+      9: "MAINTENANCE", 10: "CONSTRUCTION", 11: "POLICE_ACTIVITY", 12: "MEDICAL_EMERGENCY",
+    };
+    const effectMap: Record<number, string> = {
+      1: "NO_SERVICE", 2: "REDUCED_SERVICE", 3: "SIGNIFICANT_DELAYS", 4: "DETOUR",
+      5: "ADDITIONAL_SERVICE", 6: "MODIFIED_SERVICE", 7: "OTHER", 8: "UNKNOWN", 9: "STOP_MOVED",
+    };
+    
+    const alerts: ServiceAlert[] = [];
+    for (const entity of decoded.entity || []) {
+      const a = entity.alert;
+      if (!a) continue;
+      
+      const headerText = a.headerText?.translation?.[0]?.text || "";
+      const descriptionText = a.descriptionText?.translation?.[0]?.text || "";
+      const routeIds: string[] = [];
+      const stopIds: string[] = [];
+      
+      for (const ie of a.informedEntity || []) {
+        if (ie.routeId) routeIds.push(ie.routeId);
+        if (ie.stopId) stopIds.push(ie.stopId);
+      }
+      
+      const activePeriods = (a.activePeriod || []).map((ap: any) => ({
+        start: Number(ap.start || 0),
+        end: Number(ap.end || 0),
+      }));
+      
+      alerts.push({
+        id: entity.id,
+        headerText,
+        descriptionText,
+        cause: causeMap[a.cause] || "UNKNOWN",
+        effect: effectMap[a.effect] || "UNKNOWN",
+        routeIds,
+        stopIds,
+        activePeriods,
+      });
+    }
+    
+    cachedAlerts = alerts;
+    console.log(`[GTFS-RT] Fetched ${alerts.length} service alerts`);
+    return alerts;
+  } catch (err) {
+    console.error("[GTFS-RT] Error fetching service alerts:", err);
+    return cachedAlerts;
+  }
 }
 
 // Start polling
@@ -335,11 +417,13 @@ export function startPolling(intervalMs = 15000): void {
   // Fetch immediately
   fetchVehiclePositions();
   fetchTripUpdates();
+  fetchServiceAlerts();
   
   // Then poll
   pollInterval = setInterval(async () => {
     await fetchVehiclePositions();
     await fetchTripUpdates();
+    await fetchServiceAlerts();
   }, intervalMs);
 }
 

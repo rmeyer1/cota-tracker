@@ -5,14 +5,21 @@ import { downloadAndLoadGtfs } from "./gtfs-loader";
 import {
   getCachedVehicles,
   getCachedTripUpdates,
+  getCachedAlerts,
   getLastFetchTime,
   startPolling,
   type VehiclePosition,
 } from "./gtfs-realtime";
+import { getCachedWeather, startWeatherPolling } from "./weather";
+import { getCachedTraffic, startTrafficPolling } from "./traffic";
 
 export async function registerRoutes(server: Server, app: Express) {
   // Initialize GTFS data on startup
   initializeGtfs();
+
+  // Start weather and traffic polling
+  startWeatherPolling();
+  startTrafficPolling();
 
   // --- Real-time endpoints ---
 
@@ -248,14 +255,36 @@ export async function registerRoutes(server: Server, app: Express) {
     res.json({ results });
   });
 
+  // --- Weather endpoint ---
+  app.get("/api/weather", (_req, res) => {
+    res.json(getCachedWeather());
+  });
+
+  // --- Service Alerts endpoint ---
+  app.get("/api/alerts", (_req, res) => {
+    const alerts = getCachedAlerts();
+    res.json({ alerts, count: alerts.length });
+  });
+
+  // --- Traffic Incidents endpoint ---
+  app.get("/api/traffic", (_req, res) => {
+    res.json(getCachedTraffic());
+  });
+
   // GET /api/status - System status
   app.get("/api/status", (_req, res) => {
     const hasData = storage.hasData();
     const vehicleCount = getCachedVehicles().length;
     const lastUpdate = getLastFetchTime();
+    const weather = getCachedWeather();
+    const traffic = getCachedTraffic();
     res.json({
       gtfsLoaded: hasData,
       vehicleCount,
+      alertCount: getCachedAlerts().length,
+      weatherEnabled: !!weather.current,
+      trafficEnabled: traffic.enabled,
+      trafficIncidentCount: traffic.incidents.length,
       lastRealtimeUpdate: lastUpdate,
       uptime: process.uptime(),
     });

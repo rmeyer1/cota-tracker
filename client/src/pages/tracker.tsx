@@ -1,9 +1,11 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import BusMap, { type MapControls } from "@/components/BusMap";
+import BusMap, { type MapControls, type TrafficIncident } from "@/components/BusMap";
 import ETAPanel from "@/components/ETAPanel";
 import RouteSelector from "@/components/RouteSelector";
+import WeatherBar from "@/components/WeatherBar";
+import AlertsBanner from "@/components/AlertsBanner";
 import { useUserLocation } from "@/hooks/use-location";
 import { useTheme } from "@/hooks/use-theme";
 import { PerplexityAttribution } from "@/components/PerplexityAttribution";
@@ -83,8 +85,18 @@ export default function TrackerPage() {
     enabled: !!selectedRouteId,
   });
 
+  // Fetch traffic incidents
+  const { data: trafficData } = useQuery<{
+    incidents: TrafficIncident[];
+    enabled: boolean;
+  }>({
+    queryKey: ["/api/traffic"],
+    refetchInterval: 120000, // 2 minutes
+  });
+
   const vehicles = vehiclesData?.vehicles || [];
   const routes = routesData?.routes || [];
+  const trafficIncidents = trafficData?.incidents || [];
 
   // Count vehicles per route
   const vehicleCounts = useMemo(() => {
@@ -160,6 +172,9 @@ export default function TrackerPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Weather */}
+          <WeatherBar />
+
           {/* Live indicator */}
           <div className="hidden sm:flex items-center gap-1.5 mr-2">
             <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse-dot" />
@@ -184,6 +199,9 @@ export default function TrackerPage() {
         </div>
       </header>
 
+      {/* Service Alerts Banner */}
+      <AlertsBanner />
+
       {/* Main content */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* Map takes full width */}
@@ -207,6 +225,7 @@ export default function TrackerPage() {
               theme={theme}
               routeColorMap={routeColorMap}
               onMapReady={setMapControls}
+              trafficIncidents={trafficIncidents}
             />
           )}
 
