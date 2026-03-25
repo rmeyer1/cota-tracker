@@ -43,7 +43,7 @@ export default function ETAPanel({ userLat, userLon, selectedStopId }: ETAPanelP
       const res = await apiRequest("GET", `/api/eta?${params}`);
       return res.json();
     },
-    refetchInterval: 5000,
+    refetchInterval: 10000,
   });
 
   if (isLoading) {

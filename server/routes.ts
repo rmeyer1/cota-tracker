@@ -290,10 +290,10 @@ async function initializeGtfs() {
       console.log("[Init] GTFS data already loaded");
     }
     // Start real-time polling
-    startPolling(5000);
+    startPolling(10000);
   } catch (err) {
     console.error("[Init] Failed to initialize GTFS:", err);
     // Start polling anyway — the RT data doesn't depend on static data
-    startPolling(5000);
+    startPolling(10000);
   }
 }

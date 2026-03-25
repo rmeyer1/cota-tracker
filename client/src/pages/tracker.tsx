@@ -63,7 +63,7 @@ export default function TrackerPage() {
     count: number;
   }>({
     queryKey: ["/api/vehicles"],
-    refetchInterval: 5000,
+    refetchInterval: 10000,
   });
 
   // Fetch route shapes when a route is selected

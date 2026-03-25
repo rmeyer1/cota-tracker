@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -32,6 +32,60 @@ interface BusMapProps {
   routeColorMap: Map<string, string>;
 }
 
+// Tracked state per vehicle for smooth animation
+interface TrackedVehicle {
+  marker: L.Marker;
+  // Where we're animating FROM
+  fromLat: number;
+  fromLon: number;
+  // Where we're animating TO (target)
+  toLat: number;
+  toLon: number;
+  // Current displayed position
+  currentLat: number;
+  currentLon: number;
+  // Animation timing
+  animStartTime: number;
+  animDuration: number; // ms
+  // Last known data
+  routeId: string;
+  color: string;
+}
+
+const ANIM_DURATION = 4000; // smooth glide over 4 seconds
+
+function buildBusIcon(color: string, routeLabel: string, vehicleId: string): L.DivIcon {
+  return L.divIcon({
+    className: "",
+    html: `<div class="bus-marker-pin">
+      <svg width="40" height="56" viewBox="0 0 40 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <filter id="bs${vehicleId.replace(/\W/g, '')}" x="-2" y="0" width="44" height="60">
+            <feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity="0.35"/>
+          </filter>
+        </defs>
+        <g filter="url(#bs${vehicleId.replace(/\W/g, '')})">
+          <polygon points="20,52 14,42 26,42" fill="#${color}"/>
+          <rect x="4" y="2" width="32" height="40" rx="7" fill="#${color}"/>
+          <rect x="4" y="2" width="32" height="40" rx="7" stroke="white" stroke-width="2" fill="none"/>
+          <rect x="8" y="5" width="24" height="9" rx="3" fill="white" opacity="0.88"/>
+          <rect x="9" y="17" width="9" height="6" rx="1.5" fill="white" opacity="0.4"/>
+          <rect x="22" y="17" width="9" height="6" rx="1.5" fill="white" opacity="0.4"/>
+          <circle cx="10" cy="4" r="1.8" fill="#FFECB3"/>
+          <circle cx="30" cy="4" r="1.8" fill="#FFECB3"/>
+          <rect x="2" y="28" width="5" height="8" rx="2.5" fill="#222"/>
+          <rect x="33" y="28" width="5" height="8" rx="2.5" fill="#222"/>
+          <rect x="9" y="37" width="5" height="2.5" rx="1.25" fill="#EF5350" opacity="0.8"/>
+          <rect x="26" y="37" width="5" height="2.5" rx="1.25" fill="#EF5350" opacity="0.8"/>
+        </g>
+        <text x="20" y="32" text-anchor="middle" font-size="11" font-weight="800" fill="white" font-family="system-ui,sans-serif" letter-spacing="-0.5">${routeLabel}</text>
+      </svg>
+    </div>`,
+    iconSize: [40, 56],
+    iconAnchor: [20, 56],
+  });
+}
+
 export default function BusMap({
   vehicles,
   routeShapes,
@@ -43,11 +97,12 @@ export default function BusMap({
 }: BusMapProps) {
   const mapRef = useRef<L.Map | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const vehicleMarkersRef = useRef<Map<string, L.Marker>>(new Map());
+  const trackedRef = useRef<Map<string, TrackedVehicle>>(new Map());
   const shapeLayersRef = useRef<L.Polyline[]>([]);
   const userMarkerRef = useRef<L.Marker | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const initialSetRef = useRef(false);
+  const rafRef = useRef<number>(0);
 
   // Initialize map
   useEffect(() => {
@@ -64,25 +119,21 @@ export default function BusMap({
       attributionControl: true,
     });
 
-    // Add zoom control to bottom-right
     L.control.zoom({ position: "bottomright" }).addTo(map);
-
     mapRef.current = map;
 
     return () => {
+      cancelAnimationFrame(rafRef.current);
       map.remove();
       mapRef.current = null;
     };
   }, []);
 
-  // Update tile layer when theme changes
+  // Tile layer
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-
-    if (tileLayerRef.current) {
-      map.removeLayer(tileLayerRef.current);
-    }
+    if (tileLayerRef.current) map.removeLayer(tileLayerRef.current);
 
     const tileUrl =
       theme === "dark"
@@ -96,26 +147,21 @@ export default function BusMap({
     }).addTo(map);
   }, [theme]);
 
-  // Center map on user location once
+  // Center on user once
   useEffect(() => {
     if (!mapRef.current || !userLocation || initialSetRef.current) return;
-    mapRef.current.setView(
-      [userLocation.latitude, userLocation.longitude],
-      13
-    );
+    mapRef.current.setView([userLocation.latitude, userLocation.longitude], 13);
     initialSetRef.current = true;
   }, [userLocation]);
 
-  // Update user location marker
+  // User marker
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-
     if (userMarkerRef.current) {
       map.removeLayer(userMarkerRef.current);
       userMarkerRef.current = null;
     }
-
     if (userLocation) {
       const icon = L.divIcon({
         className: "",
@@ -123,7 +169,6 @@ export default function BusMap({
         iconSize: [16, 16],
         iconAnchor: [8, 8],
       });
-
       userMarkerRef.current = L.marker(
         [userLocation.latitude, userLocation.longitude],
         { icon, zIndexOffset: 1000 }
@@ -133,33 +178,25 @@ export default function BusMap({
     }
   }, [userLocation]);
 
-  // Update route shapes
+  // Route shapes
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-
-    // Remove old shapes
     shapeLayersRef.current.forEach((layer) => map.removeLayer(layer));
     shapeLayersRef.current = [];
-
-    // Add new shapes
     routeShapes.forEach((shape) => {
-      const latlngs = shape.points.map(
-        (p) => [p.lat, p.lon] as L.LatLngTuple
-      );
+      const latlngs = shape.points.map((p) => [p.lat, p.lon] as L.LatLngTuple);
       if (latlngs.length === 0) return;
-
       const polyline = L.polyline(latlngs, {
         color: `#${shape.routeColor || "2563eb"}`,
         weight: 4,
         opacity: 0.7,
       }).addTo(map);
-
       shapeLayersRef.current.push(polyline);
     });
   }, [routeShapes]);
 
-  // Update vehicle markers
+  // When new vehicle data arrives: set animation targets (don't move markers yet)
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -169,65 +206,52 @@ export default function BusMap({
       : vehicles;
 
     const currentIds = new Set(filteredVehicles.map((v) => v.vehicleId));
+    const now = performance.now();
 
-    // Remove markers for vehicles no longer present
-    vehicleMarkersRef.current.forEach((marker, id) => {
+    // Remove markers for vehicles no longer in feed
+    trackedRef.current.forEach((tv, id) => {
       if (!currentIds.has(id)) {
-        map.removeLayer(marker);
-        vehicleMarkersRef.current.delete(id);
+        map.removeLayer(tv.marker);
+        trackedRef.current.delete(id);
       }
     });
 
-    // Add/update markers
+    // Add or update animation targets
     filteredVehicles.forEach((v) => {
       const color = routeColorMap.get(v.routeId) || "2563eb";
-      const routeLabel = v.routeId.replace(/^0+/, '').slice(0, 4);
-      const bearing = v.bearing || 0;
+      const routeLabel = v.routeId.replace(/^0+/, "").slice(0, 4);
+      const existing = trackedRef.current.get(v.vehicleId);
 
-      const icon = L.divIcon({
-        className: "",
-        html: `<div class="bus-marker-pin">
-          <svg width="40" height="56" viewBox="0 0 40 56" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <!-- Drop shadow -->
-            <defs>
-              <filter id="bs${v.vehicleId.replace(/\W/g,'')}" x="-2" y="0" width="44" height="60">
-                <feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity="0.35"/>
-              </filter>
-            </defs>
-            <g filter="url(#bs${v.vehicleId.replace(/\W/g,'')})">
-              <!-- Pin pointer -->
-              <polygon points="20,52 14,42 26,42" fill="#${color}"/>
-              <!-- Bus body (rounded rect) -->
-              <rect x="4" y="2" width="32" height="40" rx="7" fill="#${color}"/>
-              <rect x="4" y="2" width="32" height="40" rx="7" stroke="white" stroke-width="2" fill="none"/>
-              <!-- Windshield -->
-              <rect x="8" y="5" width="24" height="9" rx="3" fill="white" opacity="0.88"/>
-              <!-- Side windows row -->
-              <rect x="9" y="17" width="9" height="6" rx="1.5" fill="white" opacity="0.4"/>
-              <rect x="22" y="17" width="9" height="6" rx="1.5" fill="white" opacity="0.4"/>
-              <!-- Headlights -->
-              <circle cx="10" cy="4" r="1.8" fill="#FFECB3"/>
-              <circle cx="30" cy="4" r="1.8" fill="#FFECB3"/>
-              <!-- Wheels -->
-              <rect x="2" y="28" width="5" height="8" rx="2.5" fill="#222"/>
-              <rect x="33" y="28" width="5" height="8" rx="2.5" fill="#222"/>
-              <!-- Taillights -->
-              <rect x="9" y="37" width="5" height="2.5" rx="1.25" fill="#EF5350" opacity="0.8"/>
-              <rect x="26" y="37" width="5" height="2.5" rx="1.25" fill="#EF5350" opacity="0.8"/>
-            </g>
-            <!-- Route number -->
-            <text x="20" y="32" text-anchor="middle" font-size="11" font-weight="800" fill="white" font-family="system-ui,sans-serif" letter-spacing="-0.5">${routeLabel}</text>
-          </svg>
-        </div>`,
-        iconSize: [40, 56],
-        iconAnchor: [20, 56],
-      });
-
-      const existing = vehicleMarkersRef.current.get(v.vehicleId);
       if (existing) {
-        existing.setLatLng([v.latitude, v.longitude]);
-        existing.setIcon(icon);
+        // Only start new animation if position actually changed
+        const dist = Math.abs(existing.toLat - v.latitude) + Math.abs(existing.toLon - v.longitude);
+        if (dist > 0.000001) {
+          // Snap "from" to wherever we currently are (mid-animation)
+          existing.fromLat = existing.currentLat;
+          existing.fromLon = existing.currentLon;
+          existing.toLat = v.latitude;
+          existing.toLon = v.longitude;
+          existing.animStartTime = now;
+          existing.animDuration = ANIM_DURATION;
+        }
+        // Update icon if route changed
+        if (existing.routeId !== v.routeId || existing.color !== color) {
+          existing.marker.setIcon(buildBusIcon(color, routeLabel, v.vehicleId));
+          existing.routeId = v.routeId;
+          existing.color = color;
+        }
+        // Update popup content
+        existing.marker.setPopupContent(
+          `<div style="font-family:var(--font-sans);font-size:13px;">
+            <div style="font-weight:700;font-size:14px;">Route ${v.routeId}</div>
+            <div style="color:#888;">Vehicle ${v.label || v.vehicleId}</div>
+            <div style="margin-top:4px;">Status: ${v.currentStatus.replace(/_/g, " ")}</div>
+            ${v.speed > 0 ? `<div>Speed: ${Math.round(v.speed * 2.237)} mph</div>` : ""}
+          </div>`
+        );
       } else {
+        // New vehicle — create marker at its position
+        const icon = buildBusIcon(color, routeLabel, v.vehicleId);
         const marker = L.marker([v.latitude, v.longitude], {
           icon,
           zIndexOffset: 500,
@@ -243,10 +267,59 @@ export default function BusMap({
           );
 
         marker.on("click", () => onVehicleClick?.(v));
-        vehicleMarkersRef.current.set(v.vehicleId, marker);
+
+        trackedRef.current.set(v.vehicleId, {
+          marker,
+          fromLat: v.latitude,
+          fromLon: v.longitude,
+          toLat: v.latitude,
+          toLon: v.longitude,
+          currentLat: v.latitude,
+          currentLon: v.longitude,
+          animStartTime: now,
+          animDuration: ANIM_DURATION,
+          routeId: v.routeId,
+          color,
+        });
       }
     });
   }, [vehicles, selectedRouteId, routeColorMap, onVehicleClick]);
+
+  // Animation loop — runs continuously, smoothly interpolating all markers
+  useEffect(() => {
+    let running = true;
+
+    function tick() {
+      if (!running) return;
+      const now = performance.now();
+
+      trackedRef.current.forEach((tv) => {
+        const elapsed = now - tv.animStartTime;
+        // Ease-out cubic for natural deceleration
+        const rawT = Math.min(elapsed / tv.animDuration, 1);
+        const t = 1 - Math.pow(1 - rawT, 3);
+
+        const lat = tv.fromLat + (tv.toLat - tv.fromLat) * t;
+        const lon = tv.fromLon + (tv.toLon - tv.fromLon) * t;
+
+        // Only call setLatLng if position actually changed (avoid unnecessary DOM updates)
+        if (Math.abs(lat - tv.currentLat) > 0.0000001 || Math.abs(lon - tv.currentLon) > 0.0000001) {
+          tv.currentLat = lat;
+          tv.currentLon = lon;
+          tv.marker.setLatLng([lat, lon]);
+        }
+      });
+
+      rafRef.current = requestAnimationFrame(tick);
+    }
+
+    rafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      running = false;
+      cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
 
   return (
     <div
