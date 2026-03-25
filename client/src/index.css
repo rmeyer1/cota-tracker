@@ -155,23 +155,16 @@
   animation: pulse-dot 2s ease-in-out infinite;
 }
 
-/* Bus marker styling */
-.bus-marker {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  font-weight: 700;
-  font-size: 11px;
-  color: white;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-  transition: transform 0.3s ease;
+/* Bus marker pin — SVG miniature bus */
+.bus-marker-pin {
   cursor: pointer;
+  transition: transform 0.2s ease, filter 0.2s ease;
 }
 
-.bus-marker:hover {
-  transform: scale(1.15);
-  z-index: 1000 !important;
+.bus-marker-pin:hover {
+  transform: scale(1.18) translateY(-3px);
+  filter: brightness(1.1);
+  z-index: 2000 !important;
 }
 
 /* User location marker */

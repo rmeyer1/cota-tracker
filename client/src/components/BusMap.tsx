@@ -182,12 +182,45 @@ export default function BusMap({
     filteredVehicles.forEach((v) => {
       const color = routeColorMap.get(v.routeId) || "2563eb";
       const routeLabel = v.routeId.replace(/^0+/, '').slice(0, 4);
+      const bearing = v.bearing || 0;
 
       const icon = L.divIcon({
         className: "",
-        html: `<div class="bus-marker" style="width:30px;height:30px;background:#${color};font-size:10px;line-height:30px;text-align:center;">${routeLabel}</div>`,
-        iconSize: [30, 30],
-        iconAnchor: [15, 15],
+        html: `<div class="bus-marker-pin">
+          <svg width="40" height="56" viewBox="0 0 40 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- Drop shadow -->
+            <defs>
+              <filter id="bs${v.vehicleId.replace(/\W/g,'')}" x="-2" y="0" width="44" height="60">
+                <feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity="0.35"/>
+              </filter>
+            </defs>
+            <g filter="url(#bs${v.vehicleId.replace(/\W/g,'')})">
+              <!-- Pin pointer -->
+              <polygon points="20,52 14,42 26,42" fill="#${color}"/>
+              <!-- Bus body (rounded rect) -->
+              <rect x="4" y="2" width="32" height="40" rx="7" fill="#${color}"/>
+              <rect x="4" y="2" width="32" height="40" rx="7" stroke="white" stroke-width="2" fill="none"/>
+              <!-- Windshield -->
+              <rect x="8" y="5" width="24" height="9" rx="3" fill="white" opacity="0.88"/>
+              <!-- Side windows row -->
+              <rect x="9" y="17" width="9" height="6" rx="1.5" fill="white" opacity="0.4"/>
+              <rect x="22" y="17" width="9" height="6" rx="1.5" fill="white" opacity="0.4"/>
+              <!-- Headlights -->
+              <circle cx="10" cy="4" r="1.8" fill="#FFECB3"/>
+              <circle cx="30" cy="4" r="1.8" fill="#FFECB3"/>
+              <!-- Wheels -->
+              <rect x="2" y="28" width="5" height="8" rx="2.5" fill="#222"/>
+              <rect x="33" y="28" width="5" height="8" rx="2.5" fill="#222"/>
+              <!-- Taillights -->
+              <rect x="9" y="37" width="5" height="2.5" rx="1.25" fill="#EF5350" opacity="0.8"/>
+              <rect x="26" y="37" width="5" height="2.5" rx="1.25" fill="#EF5350" opacity="0.8"/>
+            </g>
+            <!-- Route number -->
+            <text x="20" y="32" text-anchor="middle" font-size="11" font-weight="800" fill="white" font-family="system-ui,sans-serif" letter-spacing="-0.5">${routeLabel}</text>
+          </svg>
+        </div>`,
+        iconSize: [40, 56],
+        iconAnchor: [20, 56],
       });
 
       const existing = vehicleMarkersRef.current.get(v.vehicleId);
