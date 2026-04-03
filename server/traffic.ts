@@ -161,14 +161,14 @@ export function getCachedTraffic(): TrafficData {
 // Poll every 2 minutes
 let trafficInterval: NodeJS.Timeout | null = null;
 
-export function startTrafficPolling(intervalMs = 120000): void {
+export function startTrafficPolling(intervalMs = 10000): void {
   const apiKey = getApiKey();
   if (!apiKey) {
     console.log("[Traffic] OHGO_API_KEY not set — traffic integration disabled. Register at https://publicapi.ohgo.com");
     cachedTraffic.enabled = false;
     return;
   }
-  console.log(`[Traffic] Starting OHGO polling every ${intervalMs / 60000} min`);
+  console.log(`[Traffic] Starting OHGO polling every ${intervalMs / 1000} sec`);
   cachedTraffic.enabled = true;
   fetchTrafficIncidents();
   fetchTrafficCameras();

@@ -94,7 +94,7 @@ export default function TrackerPage() {
     enabled: boolean;
   }>({
     queryKey: ["/api/traffic"],
-    refetchInterval: 120000, // 2 minutes
+    refetchInterval: 10000, // 10 seconds (same as bus vehicles)
   });
 
   const vehicles = vehiclesData?.vehicles || [];
