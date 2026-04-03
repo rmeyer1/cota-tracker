@@ -12,6 +12,7 @@ import {
 } from "./gtfs-realtime";
 import { getCachedWeather, startWeatherPolling } from "./weather";
 import { getCachedTraffic, startTrafficPolling } from "./traffic";
+import { getInterpolatedVehicles, getRouteShapesForMap } from "./interpolation";
 
 export async function registerRoutes(server: Server, app: Express) {
   // Initialize GTFS data on startup
@@ -269,6 +270,30 @@ export async function registerRoutes(server: Server, app: Express) {
   // --- Traffic Incidents & Cameras endpoint ---
   app.get("/api/traffic", (_req, res) => {
     res.json(getCachedTraffic());
+  });
+
+  // --- Interpolated vehicle endpoints ---
+
+  // GET /api/vehicles/interpolated/:routeId - Vehicles with route-based interpolation
+  app.get("/api/vehicles/interpolated/:routeId", (req, res) => {
+    const routeId = req.params.routeId;
+    const timestamp = Date.now();
+    
+    const vehicles = getInterpolatedVehicles(routeId, timestamp);
+    const shapes = getRouteShapesForMap(routeId);
+    
+    res.json({
+      vehicles,
+      shapes,
+      timestamp,
+      count: vehicles.length,
+    });
+  });
+
+  // GET /api/shapes/:routeId - Get route shapes as GeoJSON
+  app.get("/api/shapes/:routeId", (req, res) => {
+    const shapes = getRouteShapesForMap(req.params.routeId);
+    res.json({ shapes, count: Object.keys(shapes).length });
   });
 
   // GET /api/status - System status

@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { addCameraMarkers, type TrafficCamera } from "./cameraUtils";
+import { ANIMATION_CONFIG } from "@/config/animation";
 
 interface Vehicle {
   vehicleId: string;
@@ -55,6 +56,37 @@ interface BusMapProps {
   trafficIncidents?: TrafficIncident[];
   trafficCameras?: TrafficCamera[];
   showCameras?: boolean;
+  // New: Route-based interpolation support
+  interpolatedVehicles?: InterpolatedVehicleData[];
+  interpolatedShapes?: Record<string, { lat: number; lon: number }[]>;
+}
+
+// Types for interpolated vehicle data from backend
+export interface InterpolatedVehicleData {
+  vehicleId: string;
+  tripId: string;
+  routeId: string;
+  currentPosition: {
+    lat: number;
+    lon: number;
+    bearing: number;
+  };
+  previousPosition: {
+    lat: number;
+    lon: number;
+    bearing: number;
+    timestamp: number;
+  };
+  nextPosition: {
+    lat: number;
+    lon: number;
+    bearing: number;
+    timestamp: number;
+  } | null;
+  progress: number;
+  speed: number;
+  isInterpolated: boolean;
+  shapeId: string | null;
 }
 
 // Tracked state per vehicle for smooth animation
@@ -75,9 +107,70 @@ interface TrackedVehicle {
   // Last known data
   routeId: string;
   color: string;
+  // Route-based interpolation data
+  shapePoints?: { lat: number; lon: number }[];
+  currentShapeIndex: number;
+  nextShapeIndex: number;
+  shapeProgress: number;
+  useRouteInterpolation: boolean;
 }
 
 const ANIM_DURATION = 4000; // smooth glide over 4 seconds
+
+// Linear interpolation
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+// Ease-out cubic for natural deceleration
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+// Find nearest point on shape to a given position
+function findNearestPointOnShape(
+  lat: number,
+  lon: number,
+  shapePoints: { lat: number; lon: number }[]
+): { index: number; distance: number } {
+  let minDist = Infinity;
+  let minIndex = 0;
+  
+  for (let i = 0; i < shapePoints.length; i++) {
+    const dist = Math.sqrt(
+      Math.pow(shapePoints[i].lat - lat, 2) + 
+      Math.pow(shapePoints[i].lon - lon, 2)
+    );
+    if (dist < minDist) {
+      minDist = dist;
+      minIndex = i;
+    }
+  }
+  
+  return { index: minIndex, distance: minDist };
+}
+
+// Interpolate position along shape path
+function interpolateAlongShape(
+  shapePoints: { lat: number; lon: number }[],
+  fromIndex: number,
+  toIndex: number,
+  progress: number
+): { lat: number; lon: number } {
+  if (shapePoints.length < 2 || fromIndex === toIndex) {
+    return shapePoints[fromIndex] || { lat: 0, lon: 0 };
+  }
+  
+  // Ensure indices are valid
+  const from = Math.max(0, Math.min(fromIndex, shapePoints.length - 1));
+  const to = Math.max(0, Math.min(toIndex, shapePoints.length - 1));
+  
+  // Linear interpolation between shape points
+  return {
+    lat: lerp(shapePoints[from].lat, shapePoints[to].lat, progress),
+    lon: lerp(shapePoints[from].lon, shapePoints[to].lon, progress),
+  };
+}
 
 function buildBusIcon(color: string, routeLabel: string, vehicleId: string): L.DivIcon {
   return L.divIcon({
@@ -123,6 +216,8 @@ export default function BusMap({
   trafficIncidents = [],
   trafficCameras = [],
   showCameras = false,
+  interpolatedVehicles = [],
+  interpolatedShapes = {},
 }: BusMapProps) {
   const mapRef = useRef<L.Map | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -245,9 +340,30 @@ export default function BusMap({
     const map = mapRef.current;
     if (!map) return;
 
-    const filteredVehicles = selectedRouteId
-      ? vehicles.filter((v) => v.routeId === selectedRouteId)
+    // Determine which vehicles to use: interpolated or standard
+    const useInterpolated = ANIMATION_CONFIG.enabled && 
+      interpolatedVehicles && 
+      interpolatedVehicles.length > 0 && 
+      selectedRouteId;
+
+    const vehiclesToRender = useInterpolated 
+      ? interpolatedVehicles.map(iv => ({
+          vehicleId: iv.vehicleId,
+          tripId: iv.tripId,
+          routeId: iv.routeId,
+          latitude: iv.currentPosition.lat,
+          longitude: iv.currentPosition.lon,
+          bearing: iv.currentPosition.bearing,
+          speed: iv.speed / 3.6, // km/h to m/s
+          timestamp: Date.now() / 1000,
+          label: iv.vehicleId,
+          currentStatus: 'IN_TRANSIT_TO',
+        }))
       : vehicles;
+
+    const filteredVehicles = selectedRouteId
+      ? vehiclesToRender.filter((v) => v.routeId === selectedRouteId)
+      : vehiclesToRender;
 
     const currentIds = new Set(filteredVehicles.map((v) => v.vehicleId));
     const now = performance.now();
@@ -260,11 +376,23 @@ export default function BusMap({
       }
     });
 
+    // Get shape points for route-based interpolation
+    const getShapeForVehicle = (vehicleId: string): { lat: number; lon: number }[] | undefined => {
+      if (!useInterpolated || !interpolatedShapes) return undefined;
+      
+      const iv = interpolatedVehicles?.find(v => v.vehicleId === vehicleId);
+      if (!iv?.shapeId) return undefined;
+      
+      return interpolatedShapes[iv.shapeId];
+    };
+
     // Add or update animation targets
     filteredVehicles.forEach((v) => {
       const color = routeColorMap.get(v.routeId) || "2563eb";
       const routeLabel = v.routeId.replace(/^0+/, "").slice(0, 4);
       const existing = trackedRef.current.get(v.vehicleId);
+      const shapePoints = getShapeForVehicle(v.vehicleId);
+      const useRouteInterpolation = ANIMATION_CONFIG.enabled && !!shapePoints && shapePoints.length > 1;
 
       if (existing) {
         // Only start new animation if position actually changed
@@ -277,6 +405,17 @@ export default function BusMap({
           existing.toLon = v.longitude;
           existing.animStartTime = now;
           existing.animDuration = ANIM_DURATION;
+          
+          // Update route interpolation state
+          if (useRouteInterpolation && shapePoints) {
+            existing.shapePoints = shapePoints;
+            existing.useRouteInterpolation = true;
+            // Calculate initial shape indices
+            const nearest = findNearestPointOnShape(v.latitude, v.longitude, shapePoints);
+            existing.currentShapeIndex = nearest.index;
+            existing.nextShapeIndex = Math.min(nearest.index + 1, shapePoints.length - 1);
+            existing.shapeProgress = 0;
+          }
         }
         // Update icon if route changed
         if (existing.routeId !== v.routeId || existing.color !== color) {
@@ -324,10 +463,15 @@ export default function BusMap({
           animDuration: ANIM_DURATION,
           routeId: v.routeId,
           color,
+          shapePoints: useRouteInterpolation ? shapePoints : undefined,
+          currentShapeIndex: 0,
+          nextShapeIndex: 1,
+          shapeProgress: 0,
+          useRouteInterpolation,
         });
       }
     });
-  }, [vehicles, selectedRouteId, routeColorMap, onVehicleClick]);
+  }, [vehicles, selectedRouteId, routeColorMap, onVehicleClick, interpolatedVehicles, interpolatedShapes]);
 
   // Traffic incident markers
   useEffect(() => {
@@ -398,10 +542,33 @@ export default function BusMap({
         const elapsed = now - tv.animStartTime;
         // Ease-out cubic for natural deceleration
         const rawT = Math.min(elapsed / tv.animDuration, 1);
-        const t = 1 - Math.pow(1 - rawT, 3);
+        const t = easeOutCubic(rawT);
 
-        const lat = tv.fromLat + (tv.toLat - tv.fromLat) * t;
-        const lon = tv.fromLon + (tv.toLon - tv.fromLon) * t;
+        let lat: number, lon: number;
+
+        // Route-based interpolation: follow actual road path
+        if (tv.useRouteInterpolation && tv.shapePoints && tv.shapePoints.length > 1) {
+          // Calculate current position along the shape path
+          const totalSegments = tv.shapePoints.length - 1;
+          const shapeT = t * totalSegments;
+          const fromShapeIdx = Math.floor(shapeT);
+          const toShapeIdx = Math.min(fromShapeIdx + 1, tv.shapePoints.length - 1);
+          const segmentProgress = shapeT - fromShapeIdx;
+
+          // Interpolate between shape points
+          const shapePos = interpolateAlongShape(
+            tv.shapePoints,
+            fromShapeIdx,
+            toShapeIdx,
+            segmentProgress
+          );
+          lat = shapePos.lat;
+          lon = shapePos.lon;
+        } else {
+          // Fall back to linear interpolation (current behavior)
+          lat = lerp(tv.fromLat, tv.toLat, t);
+          lon = lerp(tv.fromLon, tv.toLon, t);
+        }
 
         // Only call setLatLng if position actually changed (avoid unnecessary DOM updates)
         if (Math.abs(lat - tv.currentLat) > 0.0000001 || Math.abs(lon - tv.currentLon) > 0.0000001) {
