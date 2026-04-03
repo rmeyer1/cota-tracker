@@ -36,7 +36,7 @@ export default function AlertsBanner() {
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
   const { data } = useQuery<{ alerts: ServiceAlert[]; count: number }>({
-    queryKey: ["/api/alerts"],
+    queryKey: ["api/alerts"],
     refetchInterval: 30000,
   });
 
@@ -44,78 +44,79 @@ export default function AlertsBanner() {
 
   if (alerts.length === 0) return null;
 
-  const visibleAlerts = expanded ? alerts : alerts.slice(0, 2);
-
   return (
     <div
       className="border-b border-border bg-card/80 backdrop-blur-sm"
       data-testid="alerts-banner"
     >
-      <div className="max-w-full overflow-hidden">
-        {visibleAlerts.map((alert) => (
-          <div
-            key={alert.id}
-            className="flex items-start gap-2 px-4 py-2 border-b border-border/50 last:border-0"
-            data-testid={`alert-${alert.id}`}
-          >
-            <AlertTriangle className="w-4 h-4 mt-0.5 text-yellow-500 shrink-0" />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                {/* Effect badge */}
-                <span
-                  className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
-                    effectColors[alert.effect] || "bg-muted text-muted-foreground"
-                  }`}
-                >
-                  {effectLabels[alert.effect] || alert.effect}
-                </span>
-                {/* Route badges */}
-                {alert.routeIds.slice(0, 5).map((rid) => (
-                  <Badge
-                    key={rid}
-                    variant="outline"
-                    className="text-[10px] px-1 py-0 h-4"
-                  >
-                    <Bus className="w-2.5 h-2.5 mr-0.5" />
-                    {rid.replace(/^0+/, "")}
-                  </Badge>
-                ))}
-              </div>
-              <p className="text-xs text-foreground mt-0.5 leading-snug line-clamp-2">
-                {alert.headerText || alert.descriptionText}
-              </p>
-            </div>
-            <button
-              onClick={() =>
-                setDismissed((prev) => new Set([...prev, alert.id]))
-              }
-              className="shrink-0 p-1 hover:bg-muted rounded"
-              aria-label="Dismiss alert"
-            >
-              <X className="w-3 h-3 text-muted-foreground" />
-            </button>
-          </div>
-        ))}
-      </div>
+      {/* Collapsible header */}
+      <button
+        onClick={() => setExpanded((prev) => !prev)}
+        className="w-full flex items-center justify-between px-4 py-2 hover:bg-muted/50 transition-colors"
+        data-testid="alerts-toggle"
+      >
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-yellow-500" />
+          <span className="text-xs font-semibold">
+            {alerts.length} active alert{alerts.length !== 1 ? "s" : ""}
+          </span>
+        </div>
+        {expanded ? (
+          <ChevronUp className="w-4 h-4 text-muted-foreground" />
+        ) : (
+          <ChevronDown className="w-4 h-4 text-muted-foreground" />
+        )}
+      </button>
 
-      {/* Show more/less */}
-      {alerts.length > 2 && (
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="w-full flex items-center justify-center gap-1 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          data-testid="alerts-toggle"
-        >
-          {expanded ? (
-            <>
-              <ChevronUp className="w-3 h-3" /> Show less
-            </>
-          ) : (
-            <>
-              <ChevronDown className="w-3 h-3" /> {alerts.length - 2} more
-              alert{alerts.length - 2 > 1 ? "s" : ""}
-            </>
-          )}
-        </button>
+      {/* Alert list — only visible when expanded */}
+      {expanded && (
+        <div className="max-w-full">
+          {alerts.map((alert) => (
+            <div
+              key={alert.id}
+              className="flex items-start gap-2 px-4 py-2 border-t border-border/50"
+              data-testid={`alert-${alert.id}`}
+            >
+              <AlertTriangle className="w-4 h-4 mt-0.5 text-yellow-500 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Effect badge */}
+                  <span
+                    className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                      effectColors[alert.effect] || "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    {effectLabels[alert.effect] || alert.effect}
+                  </span>
+                  {/* Route badges — use index in key to handle duplicate routeIds */}
+                  {alert.routeIds.slice(0, 5).map((rid, i) => (
+                    <Badge
+                      key={`${rid}-${i}`}
+                      variant="outline"
+                      className="text-[10px] px-1 py-0 h-4"
+                    >
+                      <Bus className="w-2.5 h-2.5 mr-0.5" />
+                      {rid.replace(/^0+/, "")}
+                    </Badge>
+                  ))}
+                </div>
+                <p className="text-xs text-foreground mt-0.5 leading-snug">
+                  {alert.headerText || alert.descriptionText}
+                </p>
+              </div>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDismissed((prev) => new Set([...prev, alert.id]));
+                }}
+                className="shrink-0 p-1 hover:bg-muted rounded"
+                aria-label="Dismiss alert"
+              >
+                <X className="w-3 h-3 text-muted-foreground" />
+              </button>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import BusMap, { type MapControls, type TrafficIncident } from "@/components/BusMap";
+import BusMap, { type MapControls, type TrafficIncident, type TrafficCamera } from "@/components/BusMap";
 import ETAPanel from "@/components/ETAPanel";
 import RouteSelector from "@/components/RouteSelector";
 import WeatherBar from "@/components/WeatherBar";
@@ -25,6 +25,7 @@ import {
   Plus,
   Minus,
   Crosshair,
+  Video,
 } from "lucide-react";
 
 export default function TrackerPage() {
@@ -33,6 +34,7 @@ export default function TrackerPage() {
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [mapControls, setMapControls] = useState<MapControls | null>(null);
+  const [showCameras, setShowCameras] = useState(true); // shown by default
 
   // Fetch all routes
   const { data: routesData } = useQuery<{
@@ -85,18 +87,20 @@ export default function TrackerPage() {
     enabled: !!selectedRouteId,
   });
 
-  // Fetch traffic incidents
+  // Fetch traffic incidents & cameras
   const { data: trafficData } = useQuery<{
     incidents: TrafficIncident[];
+    cameras: TrafficCamera[];
     enabled: boolean;
   }>({
     queryKey: ["/api/traffic"],
-    refetchInterval: 120000, // 2 minutes
+    refetchInterval: 10000, // 10 seconds (same as bus vehicles)
   });
 
   const vehicles = vehiclesData?.vehicles || [];
   const routes = routesData?.routes || [];
   const trafficIncidents = trafficData?.incidents || [];
+  const trafficCameras = trafficData?.cameras || [];
 
   // Count vehicles per route
   const vehicleCounts = useMemo(() => {
@@ -186,6 +190,17 @@ export default function TrackerPage() {
           <Button
             variant="ghost"
             size="icon"
+            className={`h-8 w-8 ${showCameras ? "text-blue-500 bg-blue-50 dark:bg-blue-950" : ""}`}
+            onClick={() => setShowCameras((v) => !v)}
+            data-testid="cameras-toggle"
+            title={showCameras ? "Hide traffic cameras" : "Show traffic cameras"}
+          >
+            <Video className="w-4 h-4" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
             className="h-8 w-8"
             onClick={toggleTheme}
             data-testid="theme-toggle"
@@ -226,6 +241,8 @@ export default function TrackerPage() {
               routeColorMap={routeColorMap}
               onMapReady={setMapControls}
               trafficIncidents={trafficIncidents}
+              trafficCameras={trafficCameras}
+              showCameras={showCameras}
             />
           )}
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { addCameraMarkers, type TrafficCamera } from "./cameraUtils";
 
 interface Vehicle {
   vehicleId: string;
@@ -39,6 +40,9 @@ export interface TrafficIncident {
   isRoadClosed: boolean;
 }
 
+// Re-exported from cameraUtils for backwards compatibility
+export type { TrafficCamera } from "./cameraUtils";
+
 interface BusMapProps {
   vehicles: Vehicle[];
   routeShapes: RouteShape[];
@@ -49,6 +53,8 @@ interface BusMapProps {
   routeColorMap: Map<string, string>;
   onMapReady?: (controls: MapControls) => void;
   trafficIncidents?: TrafficIncident[];
+  trafficCameras?: TrafficCamera[];
+  showCameras?: boolean;
 }
 
 // Tracked state per vehicle for smooth animation
@@ -115,12 +121,15 @@ export default function BusMap({
   routeColorMap,
   onMapReady,
   trafficIncidents = [],
+  trafficCameras = [],
+  showCameras = false,
 }: BusMapProps) {
   const mapRef = useRef<L.Map | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const trackedRef = useRef<Map<string, TrackedVehicle>>(new Map());
   const shapeLayersRef = useRef<L.Polyline[]>([]);
   const incidentMarkersRef = useRef<L.Marker[]>([]);
+  const cameraMarkersRef = useRef<L.Marker[]>([]);
   const userMarkerRef = useRef<L.Marker | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const initialSetRef = useRef(false);
@@ -361,6 +370,21 @@ export default function BusMap({
       incidentMarkersRef.current.push(marker);
     });
   }, [trafficIncidents]);
+
+  // Traffic camera markers
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // Remove old camera markers
+    cameraMarkersRef.current.forEach((m) => map.removeLayer(m));
+    cameraMarkersRef.current = [];
+
+    // Only show cameras when toggle is enabled
+    if (!showCameras) return;
+
+    cameraMarkersRef.current = addCameraMarkers(map, trafficCameras);
+  }, [trafficCameras, showCameras]);
 
   // Animation loop — runs continuously, smoothly interpolating all markers
   useEffect(() => {

@@ -266,7 +266,7 @@ export async function registerRoutes(server: Server, app: Express) {
     res.json({ alerts, count: alerts.length });
   });
 
-  // --- Traffic Incidents endpoint ---
+  // --- Traffic Incidents & Cameras endpoint ---
   app.get("/api/traffic", (_req, res) => {
     res.json(getCachedTraffic());
   });
