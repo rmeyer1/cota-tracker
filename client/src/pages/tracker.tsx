@@ -72,11 +72,11 @@ export default function TrackerPage() {
     count: number;
   }>({
     queryKey: ["/api/vehicles"],
-    refetchInterval: 10000,
+    refetchInterval: 15000,
   });
 
   // Fetch interpolated vehicles for smooth route-based animations
-  const { data: interpolatedData } = useInterpolatedVehicles(selectedRouteId, 10000);
+  const { data: interpolatedData } = useInterpolatedVehicles(selectedRouteId, 15000);
 
   // Fetch route shapes when a route is selected
   const { data: routeShapeData } = useQuery<{
@@ -98,7 +98,7 @@ export default function TrackerPage() {
     enabled: boolean;
   }>({
     queryKey: ["/api/traffic"],
-    refetchInterval: 10000, // 10 seconds (same as bus vehicles)
+    refetchInterval: 15000, // 15 seconds (matches GTFS-RT feed SLA)
   });
 
   const vehicles = vehiclesData?.vehicles || [];

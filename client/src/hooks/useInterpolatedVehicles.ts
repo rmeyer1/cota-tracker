@@ -39,7 +39,7 @@ export interface InterpolatedVehiclesResponse {
  * Hook for fetching vehicles with route-based interpolation
  * Use this when you need smooth bus animations along actual route shapes
  */
-export function useInterpolatedVehicles(routeId: string | null, refetchInterval = 10000) {
+export function useInterpolatedVehicles(routeId: string | null, refetchInterval = 15000) {
   return useQuery<InterpolatedVehiclesResponse>({
     queryKey: ["/api/vehicles/interpolated", routeId],
     queryFn: async () => {

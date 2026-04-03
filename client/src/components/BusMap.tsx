@@ -117,7 +117,7 @@ interface TrackedVehicle {
 
 // Animation duration should match the refetch interval for seamless smooth animations
 // Use a slightly shorter duration to start the next animation before the previous one ends
-const ANIM_DURATION = 9000; // smooth glide over 9 seconds (10s refetch interval)
+const ANIM_DURATION = 14000; // smooth glide over 14 seconds (15s refetch interval)
 
 // Linear interpolation
 function lerp(a: number, b: number, t: number): number {
