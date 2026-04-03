@@ -17,20 +17,86 @@ export interface TrafficIncident {
   isRoadClosed: boolean;
 }
 
+export interface TrafficCamera {
+  id: string;
+  latitude: number;
+  longitude: number;
+  location: string;
+  description: string;
+  cameraViews: {
+    direction: string;
+    smallUrl: string;
+    largeUrl: string;
+    mainRoute: string;
+  }[];
+}
+
 export interface TrafficData {
   incidents: TrafficIncident[];
+  cameras: TrafficCamera[];
   lastUpdated: number;
   enabled: boolean;
 }
 
 let cachedTraffic: TrafficData = {
   incidents: [],
+  cameras: [],
   lastUpdated: 0,
   enabled: false,
 };
 
 function getApiKey(): string | null {
   return process.env.OHGO_API_KEY || null;
+}
+
+export async function fetchTrafficCameras(): Promise<TrafficCamera[]> {
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    return cachedTraffic.cameras;
+  }
+
+  try {
+    const url = `${OHGO_BASE}/cameras?region=columbus`;
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `APIKEY ${apiKey}`,
+        Accept: "application/json",
+      },
+    });
+
+    if (!res.ok) {
+      console.error(`[Traffic] OHGO cameras failed: ${res.status}`);
+      return cachedTraffic.cameras;
+    }
+
+    const data = await res.json();
+    const results = (data.results || [])
+      .filter((r: any) => r.latitude && r.longitude)
+      .map((r: any) => ({
+        id: String(r.id || ""),
+        latitude: r.latitude,
+        longitude: r.longitude,
+        location: r.location || "",
+        description: r.description || "",
+        cameraViews: (r.cameraViews || []).map((cv: any) => ({
+          direction: cv.direction || "",
+          smallUrl: cv.smallUrl || "",
+          largeUrl: cv.largeUrl || "",
+          mainRoute: cv.mainRoute || "",
+        })),
+      }));
+
+    cachedTraffic = {
+      ...cachedTraffic,
+      cameras: results,
+    };
+
+    console.log(`[Traffic] Fetched ${results.length} cameras`);
+    return results;
+  } catch (err) {
+    console.error("[Traffic] Error fetching cameras:", err);
+    return cachedTraffic.cameras;
+  }
 }
 
 export async function fetchTrafficIncidents(): Promise<TrafficIncident[]> {
@@ -71,6 +137,7 @@ export async function fetchTrafficIncidents(): Promise<TrafficIncident[]> {
       }));
 
     cachedTraffic = {
+      ...cachedTraffic,
       incidents: results,
       lastUpdated: Date.now(),
       enabled: true,
@@ -104,7 +171,11 @@ export function startTrafficPolling(intervalMs = 120000): void {
   console.log(`[Traffic] Starting OHGO polling every ${intervalMs / 60000} min`);
   cachedTraffic.enabled = true;
   fetchTrafficIncidents();
-  trafficInterval = setInterval(fetchTrafficIncidents, intervalMs);
+  fetchTrafficCameras();
+  trafficInterval = setInterval(() => {
+    fetchTrafficIncidents();
+    fetchTrafficCameras();
+  }, intervalMs);
 }
 
 export function stopTrafficPolling(): void {
