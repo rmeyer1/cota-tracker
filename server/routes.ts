@@ -126,15 +126,6 @@ export async function registerRoutes(server: Server, app: Express) {
     res.json({ stops: allStops });
   });
 
-  // GET /api/stops/:stopId - Single stop with upcoming arrivals
-  app.get("/api/stops/:stopId", async (req, res) => {
-    const stop = await storage.getStop(req.params.stopId);
-    if (!stop) {
-      return res.status(404).json({ error: "Stop not found" });
-    }
-    res.json({ stop });
-  });
-
   // GET /api/stops/nearby?lat=&lon=&radius= - Find stops near a location using PostGIS ST_DWithin
   app.get("/api/stops/nearby", async (req, res) => {
     const { lat, lon, radius } = req.query;
@@ -148,8 +139,16 @@ export async function registerRoutes(server: Server, app: Express) {
 
     // Use PostGIS ST_DWithin for efficient spatial query
     const nearby = await storage.getStopsNearby(userLat, userLon, searchRadius);
-
     res.json({ stops: nearby });
+  });
+
+  // GET /api/stops/:stopId - Single stop with upcoming arrivals
+  app.get("/api/stops/:stopId", async (req, res) => {
+    const stop = await storage.getStop(req.params.stopId);
+    if (!stop) {
+      return res.status(404).json({ error: "Stop not found" });
+    }
+    res.json({ stop });
   });
 
   // GET /api/eta?lat=&lon=&stopId= - ETA to user location from nearest vehicles

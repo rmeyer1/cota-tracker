@@ -80,8 +80,17 @@ app.use((req, res, next) => {
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
   if (process.env.NODE_ENV === "production") {
-    serveStatic(app);
+    try {
+      serveStatic(app);
+    } catch (err) {
+      console.warn("[Static] Failed to serve static files:", err.message);
+    }
   } else {
+    // Serve test file in development
+    app.get('/', (req, res) => {
+      res.sendFile(path.join(__dirname, '..', 'test.html'));
+    });
+    
     const { setupVite } = await import("./vite");
     await setupVite(httpServer, app);
   }

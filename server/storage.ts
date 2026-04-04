@@ -1,6 +1,6 @@
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
+import { drizzle } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
+import { Client } from "pg";
 import {
   routes, stops, trips, stopTimes, shapes, calendar,
   type Route, type Stop, type Trip, type StopTime, type Shape, type Calendar,
@@ -14,17 +14,21 @@ if (!connectionString) {
   throw new Error("DATABASE_URL environment variable is required");
 }
 
-// Use postgres-js driver (drizzle-orm/postgres-js)
-// Supabase requires SSL — append ?sslmode=require
+// Use pg driver (drizzle-orm/node-postgres)
+// Supabase requires SSL
 const rawConnectionString = connectionString.includes("?")
-  ? `${connectionString}&sslmode=require`
-  : `${connectionString}?sslmode=require`;
+  ? `${connectionString}&sslmode=no-verify`
+  : `${connectionString}?sslmode=no-verify`;
 
-const client = postgres(rawConnectionString, {
-  max: 10,
-  idle_timeout: 20,
-  connect_timeout: 10,
+const client = new Client({
+  connectionString: rawConnectionString
 });
+
+// Connect the client
+client.connect().catch(err => {
+  console.error("[DB] Connection failed:", err);
+});
+
 export const db = drizzle(client);
 
 export interface IStorage {
