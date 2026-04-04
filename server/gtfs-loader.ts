@@ -73,7 +73,7 @@ export async function downloadAndLoadGtfs(): Promise<void> {
   console.log("[GTFS] Extracted zip");
   
   // Clear existing data
-  storage.clearAll();
+  await storage.clearAll();
   
   // Load routes
   const routesFile = path.join(GTFS_DIR, "routes.txt");
@@ -87,7 +87,7 @@ export async function downloadAndLoadGtfs(): Promise<void> {
       routeTextColor: r.route_text_color || null,
       routeType: r.route_type ? parseInt(r.route_type) : null,
     }));
-    storage.bulkInsertRoutes(routeData);
+    await storage.bulkInsertRoutes(routeData);
     console.log(`[GTFS] Loaded ${routeData.length} routes`);
   }
   
@@ -102,7 +102,7 @@ export async function downloadAndLoadGtfs(): Promise<void> {
       stopLon: parseFloat(s.stop_lon),
       stopCode: s.stop_code || null,
     }));
-    storage.bulkInsertStops(stopData);
+    await storage.bulkInsertStops(stopData);
     console.log(`[GTFS] Loaded ${stopData.length} stops`);
   }
   
@@ -118,7 +118,7 @@ export async function downloadAndLoadGtfs(): Promise<void> {
       directionId: t.direction_id ? parseInt(t.direction_id) : null,
       shapeId: t.shape_id || null,
     }));
-    storage.bulkInsertTrips(tripData);
+    await storage.bulkInsertTrips(tripData);
     console.log(`[GTFS] Loaded ${tripData.length} trips`);
   }
   
@@ -135,7 +135,7 @@ export async function downloadAndLoadGtfs(): Promise<void> {
     // Insert in chunks
     const CHUNK_SIZE = 5000;
     for (let i = 0; i < shapeData.length; i += CHUNK_SIZE) {
-      storage.bulkInsertShapes(shapeData.slice(i, i + CHUNK_SIZE));
+      await storage.bulkInsertShapes(shapeData.slice(i, i + CHUNK_SIZE));
     }
     console.log(`[GTFS] Loaded ${shapeData.length} shape points`);
   }
@@ -153,7 +153,7 @@ export async function downloadAndLoadGtfs(): Promise<void> {
     }));
     const CHUNK_SIZE = 5000;
     for (let i = 0; i < stData.length; i += CHUNK_SIZE) {
-      storage.bulkInsertStopTimes(stData.slice(i, i + CHUNK_SIZE));
+      await storage.bulkInsertStopTimes(stData.slice(i, i + CHUNK_SIZE));
     }
     console.log(`[GTFS] Loaded ${stData.length} stop times`);
   }
@@ -174,7 +174,7 @@ export async function downloadAndLoadGtfs(): Promise<void> {
       startDate: c.start_date,
       endDate: c.end_date,
     }));
-    storage.bulkInsertCalendar(calData);
+    await storage.bulkInsertCalendar(calData);
     console.log(`[GTFS] Loaded ${calData.length} calendar entries`);
   }
   
