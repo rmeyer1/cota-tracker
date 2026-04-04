@@ -8,10 +8,28 @@ import {
   getCachedAlerts,
   getLastFetchTime,
   startPolling,
-  type VehiclePosition,
 } from "./gtfs-realtime";
 import { getCachedWeather, startWeatherPolling } from "./weather";
 import { getCachedTraffic, startTrafficPolling } from "./traffic";
+
+// Haversine distance in km (used only for vehicle-to-stop distance in ETA calculation)
+function haversine(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 export async function registerRoutes(server: Server, app: Express) {
   // Initialize GTFS data on startup
@@ -62,26 +80,26 @@ export async function registerRoutes(server: Server, app: Express) {
   // --- Static GTFS endpoints ---
 
   // GET /api/routes - All routes
-  app.get("/api/routes", (_req, res) => {
-    const routes = storage.getAllRoutes();
+  app.get("/api/routes", async (_req, res) => {
+    const routes = await storage.getAllRoutes();
     res.json({ routes });
   });
 
   // GET /api/routes/:routeId - Single route with shape
-  app.get("/api/routes/:routeId", (req, res) => {
-    const route = storage.getRoute(req.params.routeId);
+  app.get("/api/routes/:routeId", async (req, res) => {
+    const route = await storage.getRoute(req.params.routeId);
     if (!route) {
       return res.status(404).json({ error: "Route not found" });
     }
 
     // Get trips for this route to find shape
-    const routeTrips = storage.getTripsByRoute(req.params.routeId);
+    const routeTrips = await storage.getTripsByRoute(req.params.routeId);
     const shapeIds = [...new Set(routeTrips.map((t) => t.shapeId).filter(Boolean))] as string[];
 
     // Get shape geometry (first shape for each direction)
     const shapeGeometry: Record<string, { lat: number; lon: number }[]> = {};
     for (const shapeId of shapeIds.slice(0, 2)) {
-      const points = storage.getShape(shapeId);
+      const points = await storage.getShape(shapeId);
       shapeGeometry[shapeId] = points
         .sort((a, b) => a.shapePtSequence - b.shapePtSequence)
         .map((p) => ({ lat: p.shapePtLat, lon: p.shapePtLon }));
@@ -91,9 +109,9 @@ export async function registerRoutes(server: Server, app: Express) {
   });
 
   // GET /api/stops - All stops (with optional bounding box filter)
-  app.get("/api/stops", (req, res) => {
+  app.get("/api/stops", async (req, res) => {
     const { minLat, maxLat, minLon, maxLon } = req.query;
-    let allStops = storage.getAllStops();
+    let allStops = await storage.getAllStops();
 
     if (minLat && maxLat && minLon && maxLon) {
       allStops = allStops.filter(
@@ -108,17 +126,8 @@ export async function registerRoutes(server: Server, app: Express) {
     res.json({ stops: allStops });
   });
 
-  // GET /api/stops/:stopId - Single stop with upcoming arrivals
-  app.get("/api/stops/:stopId", (req, res) => {
-    const stop = storage.getStop(req.params.stopId);
-    if (!stop) {
-      return res.status(404).json({ error: "Stop not found" });
-    }
-    res.json({ stop });
-  });
-
-  // GET /api/stops/nearby?lat=&lon=&radius= - Find stops near a location
-  app.get("/api/stops/nearby", (req, res) => {
+  // GET /api/stops/nearby?lat=&lon=&radius= - Find stops near a location using PostGIS ST_DWithin
+  app.get("/api/stops/nearby", async (req, res) => {
     const { lat, lon, radius } = req.query;
     if (!lat || !lon) {
       return res.status(400).json({ error: "lat and lon required" });
@@ -128,21 +137,22 @@ export async function registerRoutes(server: Server, app: Express) {
     const userLon = Number(lon);
     const searchRadius = Number(radius) || 0.5; // km
 
-    const allStops = storage.getAllStops();
-    const nearby = allStops
-      .map((stop) => ({
-        ...stop,
-        distance: haversine(userLat, userLon, stop.stopLat, stop.stopLon),
-      }))
-      .filter((s) => s.distance <= searchRadius)
-      .sort((a, b) => a.distance - b.distance)
-      .slice(0, 20);
-
+    // Use PostGIS ST_DWithin for efficient spatial query
+    const nearby = await storage.getStopsNearby(userLat, userLon, searchRadius);
     res.json({ stops: nearby });
   });
 
+  // GET /api/stops/:stopId - Single stop with upcoming arrivals
+  app.get("/api/stops/:stopId", async (req, res) => {
+    const stop = await storage.getStop(req.params.stopId);
+    if (!stop) {
+      return res.status(404).json({ error: "Stop not found" });
+    }
+    res.json({ stop });
+  });
+
   // GET /api/eta?lat=&lon=&stopId= - ETA to user location from nearest vehicles
-  app.get("/api/eta", (req, res) => {
+  app.get("/api/eta", async (req, res) => {
     const { lat, lon, stopId } = req.query;
     if (!lat || !lon) {
       return res.status(400).json({ error: "lat and lon are required" });
@@ -155,7 +165,7 @@ export async function registerRoutes(server: Server, app: Express) {
 
     // If stopId provided, get ETAs for that stop
     if (stopId) {
-      const stop = storage.getStop(String(stopId));
+      const stop = await storage.getStop(String(stopId));
       if (!stop) return res.status(404).json({ error: "Stop not found" });
 
       // Find vehicles heading to this stop
@@ -203,28 +213,23 @@ export async function registerRoutes(server: Server, app: Express) {
       return res.json({ etas, stop });
     }
 
-    // Otherwise find nearest stops and their vehicles
-    const allStops = storage.getAllStops();
-    const nearbyStops = allStops
-      .map((s) => ({
-        ...s,
-        distance: haversine(userLat, userLon, s.stopLat, s.stopLon),
-      }))
-      .filter((s) => s.distance <= 0.8)
-      .sort((a, b) => a.distance - b.distance)
-      .slice(0, 5);
+    // Otherwise find nearest stops using PostGIS, then vehicles per stop
+    const nearbyStopsResult = await storage.getStopsNearby(userLat, userLon, 0.8);
+    const nearbyStops = nearbyStopsResult.slice(0, 5);
 
-    const results = nearbyStops.map((stop) => {
+    const results = await Promise.all(nearbyStops.slice(0, 5).map(async (stop) => {
+      const routeMap = new Map<string, { routeShortName: string; routeColor: string }>();
+      const uniqueRouteIds = [...new Set(vehicles.map((v) => v.routeId))];
+      await Promise.all(uniqueRouteIds.map(async (routeId) => {
+        const r = await storage.getRoute(routeId);
+        if (r) routeMap.set(routeId, { routeShortName: r.routeShortName, routeColor: r.routeColor || "1976D2" });
+      }));
+
       const nearbyVehicles = vehicles
         .map((v) => {
-          const dist = haversine(
-            v.latitude,
-            v.longitude,
-            stop.stopLat,
-            stop.stopLon
-          );
+          const dist = haversine(v.latitude, v.longitude, stop.stopLat, stop.stopLon);
           const etaMinutes = Math.round((dist / 25) * 60);
-          const route = storage.getRoute(v.routeId);
+          const route = routeMap.get(v.routeId);
           return {
             vehicleId: v.vehicleId,
             routeId: v.routeId,
@@ -245,12 +250,12 @@ export async function registerRoutes(server: Server, app: Express) {
           stopName: stop.stopName,
           lat: stop.stopLat,
           lon: stop.stopLon,
-          distanceMeters: Math.round(stop.distance * 1000),
-          walkMinutes: Math.round((stop.distance / 5) * 60), // 5 km/h walking
+          distanceMeters: Math.round(stop.distance),
+          walkMinutes: Math.round((stop.distance / 1000 / 5) * 60),
         },
         vehicles: nearbyVehicles,
       };
-    });
+    }));
 
     res.json({ results });
   });
@@ -272,8 +277,8 @@ export async function registerRoutes(server: Server, app: Express) {
   });
 
   // GET /api/status - System status
-  app.get("/api/status", (_req, res) => {
-    const hasData = storage.hasData();
+  app.get("/api/status", async (_req, res) => {
+    const hasData = await storage.hasData();
     const vehicleCount = getCachedVehicles().length;
     const lastUpdate = getLastFetchTime();
     const weather = getCachedWeather();
@@ -291,28 +296,9 @@ export async function registerRoutes(server: Server, app: Express) {
   });
 }
 
-// Haversine distance in km
-function haversine(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number
-): number {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
 async function initializeGtfs() {
   try {
-    if (!storage.hasData()) {
+    if (!(await storage.hasData())) {
       console.log("[Init] No GTFS data found, downloading...");
       await downloadAndLoadGtfs();
     } else {

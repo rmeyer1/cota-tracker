@@ -1,184 +1,265 @@
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import Database from "better-sqlite3";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { sql } from "drizzle-orm";
+import { Client } from "pg";
 import {
   routes, stops, trips, stopTimes, shapes, calendar,
   type Route, type Stop, type Trip, type StopTime, type Shape, type Calendar,
   type InsertRoute, type InsertStop, type InsertTrip, type InsertStopTime, type InsertShape, type InsertCalendar,
 } from "@shared/schema";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
-const sqlite = new Database("cota.db");
-sqlite.pragma("journal_mode = WAL");
-sqlite.pragma("synchronous = normal");
+// Supabase Postgres connection — password is URL-encoded in env
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  throw new Error("DATABASE_URL environment variable is required");
+}
 
-export const db = drizzle(sqlite);
+// Use pg driver (drizzle-orm/node-postgres)
+// Supabase requires SSL
+const rawConnectionString = connectionString.includes("?")
+  ? `${connectionString}&sslmode=no-verify`
+  : `${connectionString}?sslmode=no-verify`;
+
+const client = new Client({
+  connectionString: rawConnectionString
+});
+
+// Connect the client
+client.connect().catch(err => {
+  console.error("[DB] Connection failed:", err);
+});
+
+export const db = drizzle(client);
 
 export interface IStorage {
   // Routes
-  getAllRoutes(): Route[];
-  getRoute(routeId: string): Route | undefined;
+  getAllRoutes(): Promise<Route[]>;
+  getRoute(routeId: string): Promise<Route | undefined>;
 
   // Stops
-  getAllStops(): Stop[];
-  getStop(stopId: string): Stop | undefined;
-  getStopsByIds(stopIds: string[]): Stop[];
+  getAllStops(): Promise<Stop[]>;
+  getStop(stopId: string): Promise<Stop | undefined>;
+  getStopsByIds(stopIds: string[]): Promise<Stop[]>;
+  getStopsNearby(lat: number, lon: number, radiusKm: number): Promise<(Stop & { distance: number })[]>;
 
   // Trips
-  getTrip(tripId: string): Trip | undefined;
-  getTripsByRoute(routeId: string): Trip[];
+  getTrip(tripId: string): Promise<Trip | undefined>;
+  getTripsByRoute(routeId: string): Promise<Trip[]>;
 
   // Stop Times
-  getStopTimesForTrip(tripId: string): StopTime[];
-  getStopTimesForStop(stopId: string): StopTime[];
+  getStopTimesForTrip(tripId: string): Promise<StopTime[]>;
+  getStopTimesForStop(stopId: string): Promise<StopTime[]>;
 
   // Shapes
-  getShape(shapeId: string): Shape[];
+  getShape(shapeId: string): Promise<Shape[]>;
 
   // Calendar
-  getCalendar(serviceId: string): Calendar | undefined;
+  getCalendar(serviceId: string): Promise<Calendar | undefined>;
 
   // Bulk insert for GTFS import
-  bulkInsertRoutes(data: InsertRoute[]): void;
-  bulkInsertStops(data: InsertStop[]): void;
-  bulkInsertTrips(data: InsertTrip[]): void;
-  bulkInsertStopTimes(data: InsertStopTime[]): void;
-  bulkInsertShapes(data: InsertShape[]): void;
-  bulkInsertCalendar(data: InsertCalendar[]): void;
-  clearAll(): void;
-  hasData(): boolean;
+  bulkInsertRoutes(data: InsertRoute[]): Promise<void>;
+  bulkInsertStops(data: InsertStop[]): Promise<void>;
+  bulkInsertTrips(data: InsertTrip[]): Promise<void>;
+  bulkInsertStopTimes(data: InsertStopTime[]): Promise<void>;
+  bulkInsertShapes(data: InsertShape[]): Promise<void>;
+  bulkInsertCalendar(data: InsertCalendar[]): Promise<void>;
+  clearAll(): Promise<void>;
+  hasData(): Promise<boolean>;
 }
 
-export class SqliteStorage implements IStorage {
-  getAllRoutes(): Route[] {
-    return db.select().from(routes).all();
+export class PostgresStorage implements IStorage {
+  async getAllRoutes(): Promise<Route[]> {
+    return db.select().from(routes);
   }
 
-  getRoute(routeId: string): Route | undefined {
-    return db.select().from(routes).where(eq(routes.routeId, routeId)).get();
+  async getRoute(routeId: string): Promise<Route | undefined> {
+    const rows = await db.select().from(routes).where(eq(routes.routeId, routeId)).limit(1);
+    return rows[0];
   }
 
-  getAllStops(): Stop[] {
-    return db.select().from(stops).all();
+  async getAllStops(): Promise<Stop[]> {
+    return db.select().from(stops);
   }
 
-  getStop(stopId: string): Stop | undefined {
-    return db.select().from(stops).where(eq(stops.stopId, stopId)).get();
+  async getStop(stopId: string): Promise<Stop | undefined> {
+    const rows = await db.select().from(stops).where(eq(stops.stopId, stopId)).limit(1);
+    return rows[0];
   }
 
-  getStopsByIds(stopIds: string[]): Stop[] {
+  async getStopsByIds(stopIds: string[]): Promise<Stop[]> {
     if (stopIds.length === 0) return [];
-    return db.select().from(stops).where(inArray(stops.stopId, stopIds)).all();
+    return db.select().from(stops).where(inArray(stops.stopId, stopIds));
   }
 
-  getTrip(tripId: string): Trip | undefined {
-    return db.select().from(trips).where(eq(trips.tripId, tripId)).get();
+  /**
+   * Find stops within radius of a point using PostGIS ST_DWithin.
+   * Returns stops ordered by distance ascending.
+   */
+  async getStopsNearby(
+    lat: number,
+    lon: number,
+    radiusKm: number
+  ): Promise<(Stop & { distance: number })[]> {
+    const radiusMeters = radiusKm * 1000;
+    // ST_DWithin(geography) uses meters; ST_Distance returns meters
+    const result = await db.execute(sql`
+      SELECT
+        s.stop_id,
+        s.stop_name,
+        s.stop_lat,
+        s.stop_lon,
+        s.stop_code,
+        ST_Distance(s.location::geography, ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography) AS distance
+      FROM stops s
+      WHERE ST_DWithin(
+        s.location::geography,
+        ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography,
+        ${radiusMeters}
+      )
+      ORDER BY distance ASC
+      LIMIT 20
+    `);
+    const rows = (result as any).rows ?? [];
+    return rows.map((row: any) => ({
+      stopId: row.stop_id,
+      stopName: row.stop_name,
+      stopLat: row.stop_lat,
+      stopLon: row.stop_lon,
+      stopCode: row.stop_code,
+      distance: Number(row.distance),
+    }));
   }
 
-  getTripsByRoute(routeId: string): Trip[] {
-    return db.select().from(trips).where(eq(trips.routeId, routeId)).all();
+  async getTrip(tripId: string): Promise<Trip | undefined> {
+    const rows = await db.select().from(trips).where(eq(trips.tripId, tripId)).limit(1);
+    return rows[0];
   }
 
-  getStopTimesForTrip(tripId: string): StopTime[] {
-    return db.select().from(stopTimes).where(eq(stopTimes.tripId, tripId)).all();
+  async getTripsByRoute(routeId: string): Promise<Trip[]> {
+    return db.select().from(trips).where(eq(trips.routeId, routeId));
   }
 
-  getStopTimesForStop(stopId: string): StopTime[] {
-    return db.select().from(stopTimes).where(eq(stopTimes.stopId, stopId)).all();
+  async getStopTimesForTrip(tripId: string): Promise<StopTime[]> {
+    return db.select().from(stopTimes).where(eq(stopTimes.tripId, tripId));
   }
 
-  getShape(shapeId: string): Shape[] {
-    return db.select().from(shapes).where(eq(shapes.shapeId, shapeId)).all();
+  async getStopTimesForStop(stopId: string): Promise<StopTime[]> {
+    return db.select().from(stopTimes).where(eq(stopTimes.stopId, stopId));
   }
 
-  getCalendar(serviceId: string): Calendar | undefined {
-    return db.select().from(calendar).where(eq(calendar.serviceId, serviceId)).get();
+  async getShape(shapeId: string): Promise<Shape[]> {
+    return db.select().from(shapes).where(eq(shapes.shapeId, shapeId));
   }
 
-  bulkInsertRoutes(data: InsertRoute[]): void {
-    const stmt = sqlite.prepare(
-      `INSERT OR REPLACE INTO routes (route_id, route_short_name, route_long_name, route_color, route_text_color, route_type) VALUES (?, ?, ?, ?, ?, ?)`
-    );
-    const transaction = sqlite.transaction((items: InsertRoute[]) => {
-      for (const item of items) {
-        stmt.run(item.routeId, item.routeShortName, item.routeLongName, item.routeColor || null, item.routeTextColor || null, item.routeType || null);
-      }
-    });
-    transaction(data);
+  async getCalendar(serviceId: string): Promise<Calendar | undefined> {
+    const rows = await db.select().from(calendar).where(eq(calendar.serviceId, serviceId)).limit(1);
+    return rows[0];
   }
 
-  bulkInsertStops(data: InsertStop[]): void {
-    const stmt = sqlite.prepare(
-      `INSERT OR REPLACE INTO stops (stop_id, stop_name, stop_lat, stop_lon, stop_code) VALUES (?, ?, ?, ?, ?)`
-    );
-    const transaction = sqlite.transaction((items: InsertStop[]) => {
-      for (const item of items) {
-        stmt.run(item.stopId, item.stopName, item.stopLat, item.stopLon, item.stopCode || null);
-      }
-    });
-    transaction(data);
+  async bulkInsertRoutes(data: InsertRoute[]): Promise<void> {
+    for (const item of data) {
+      await db.execute(sql`
+        INSERT INTO routes (route_id, route_short_name, route_long_name, route_color, route_text_color, route_type)
+        VALUES (${item.routeId}, ${item.routeShortName}, ${item.routeLongName}, ${item.routeColor ?? null}, ${item.routeTextColor ?? null}, ${item.routeType ?? null})
+        ON CONFLICT (route_id) DO UPDATE SET
+          route_short_name = EXCLUDED.route_short_name,
+          route_long_name = EXCLUDED.route_long_name,
+          route_color = EXCLUDED.route_color,
+          route_text_color = EXCLUDED.route_text_color,
+          route_type = EXCLUDED.route_type
+      `);
+    }
   }
 
-  bulkInsertTrips(data: InsertTrip[]): void {
-    const stmt = sqlite.prepare(
-      `INSERT OR REPLACE INTO trips (trip_id, route_id, service_id, trip_headsign, direction_id, shape_id) VALUES (?, ?, ?, ?, ?, ?)`
-    );
-    const transaction = sqlite.transaction((items: InsertTrip[]) => {
-      for (const item of items) {
-        stmt.run(item.tripId, item.routeId, item.serviceId, item.tripHeadsign || null, item.directionId || null, item.shapeId || null);
-      }
-    });
-    transaction(data);
+  async bulkInsertStops(data: InsertStop[]): Promise<void> {
+    for (const item of data) {
+      await db.execute(sql`
+        INSERT INTO stops (stop_id, stop_name, stop_lat, stop_lon, stop_code, location)
+        VALUES (
+          ${item.stopId},
+          ${item.stopName},
+          ${item.stopLat},
+          ${item.stopLon},
+          ${item.stopCode ?? null},
+          ST_SetSRID(ST_MakePoint(${item.stopLon}, ${item.stopLat}), 4326)::geography
+        )
+        ON CONFLICT (stop_id) DO UPDATE SET
+          stop_name = EXCLUDED.stop_name,
+          stop_lat = EXCLUDED.stop_lat,
+          stop_lon = EXCLUDED.stop_lon,
+          stop_code = EXCLUDED.stop_code,
+          location = EXCLUDED.location
+      `);
+    }
   }
 
-  bulkInsertStopTimes(data: InsertStopTime[]): void {
-    const stmt = sqlite.prepare(
-      `INSERT INTO stop_times (trip_id, stop_id, arrival_time, departure_time, stop_sequence) VALUES (?, ?, ?, ?, ?)`
-    );
-    const transaction = sqlite.transaction((items: InsertStopTime[]) => {
-      for (const item of items) {
-        stmt.run(item.tripId, item.stopId, item.arrivalTime, item.departureTime, item.stopSequence);
-      }
-    });
-    transaction(data);
+  async bulkInsertTrips(data: InsertTrip[]): Promise<void> {
+    for (const item of data) {
+      await db.execute(sql`
+        INSERT INTO trips (trip_id, route_id, service_id, trip_headsign, direction_id, shape_id)
+        VALUES (${item.tripId}, ${item.routeId}, ${item.serviceId}, ${item.tripHeadsign ?? null}, ${item.directionId ?? null}, ${item.shapeId ?? null})
+        ON CONFLICT (trip_id) DO UPDATE SET
+          route_id = EXCLUDED.route_id,
+          service_id = EXCLUDED.service_id,
+          trip_headsign = EXCLUDED.trip_headsign,
+          direction_id = EXCLUDED.direction_id,
+          shape_id = EXCLUDED.shape_id
+      `);
+    }
   }
 
-  bulkInsertShapes(data: InsertShape[]): void {
-    const stmt = sqlite.prepare(
-      `INSERT INTO shapes (shape_id, shape_pt_lat, shape_pt_lon, shape_pt_sequence) VALUES (?, ?, ?, ?)`
-    );
-    const transaction = sqlite.transaction((items: InsertShape[]) => {
-      for (const item of items) {
-        stmt.run(item.shapeId, item.shapePtLat, item.shapePtLon, item.shapePtSequence);
-      }
-    });
-    transaction(data);
+  async bulkInsertStopTimes(data: InsertStopTime[]): Promise<void> {
+    // Batch insert without ON CONFLICT (stop_times has auto-increment id)
+    for (const item of data) {
+      await db.execute(sql`
+        INSERT INTO stop_times (trip_id, stop_id, arrival_time, departure_time, stop_sequence)
+        VALUES (${item.tripId}, ${item.stopId}, ${item.arrivalTime}, ${item.departureTime}, ${item.stopSequence})
+      `);
+    }
   }
 
-  bulkInsertCalendar(data: InsertCalendar[]): void {
-    const stmt = sqlite.prepare(
-      `INSERT OR REPLACE INTO calendar (service_id, monday, tuesday, wednesday, thursday, friday, saturday, sunday, start_date, end_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    );
-    const transaction = sqlite.transaction((items: InsertCalendar[]) => {
-      for (const item of items) {
-        stmt.run(item.serviceId, item.monday, item.tuesday, item.wednesday, item.thursday, item.friday, item.saturday, item.sunday, item.startDate, item.endDate);
-      }
-    });
-    transaction(data);
+  async bulkInsertShapes(data: InsertShape[]): Promise<void> {
+    for (const item of data) {
+      await db.execute(sql`
+        INSERT INTO shapes (shape_id, shape_pt_lat, shape_pt_lon, shape_pt_sequence)
+        VALUES (${item.shapeId}, ${item.shapePtLat}, ${item.shapePtLon}, ${item.shapePtSequence})
+      `);
+    }
   }
 
-  clearAll(): void {
-    sqlite.exec("DELETE FROM stop_times");
-    sqlite.exec("DELETE FROM shapes");
-    sqlite.exec("DELETE FROM trips");
-    sqlite.exec("DELETE FROM stops");
-    sqlite.exec("DELETE FROM routes");
-    sqlite.exec("DELETE FROM calendar");
+  async bulkInsertCalendar(data: InsertCalendar[]): Promise<void> {
+    for (const item of data) {
+      await db.execute(sql`
+        INSERT INTO calendar (service_id, monday, tuesday, wednesday, thursday, friday, saturday, sunday, start_date, end_date)
+        VALUES (${item.serviceId}, ${item.monday}, ${item.tuesday}, ${item.wednesday}, ${item.thursday}, ${item.friday}, ${item.saturday}, ${item.sunday}, ${item.startDate}, ${item.endDate})
+        ON CONFLICT (service_id) DO UPDATE SET
+          monday = EXCLUDED.monday,
+          tuesday = EXCLUDED.tuesday,
+          wednesday = EXCLUDED.wednesday,
+          thursday = EXCLUDED.thursday,
+          friday = EXCLUDED.friday,
+          saturday = EXCLUDED.saturday,
+          sunday = EXCLUDED.sunday,
+          start_date = EXCLUDED.start_date,
+          end_date = EXCLUDED.end_date
+      `);
+    }
   }
 
-  hasData(): boolean {
-    const result = sqlite.prepare("SELECT COUNT(*) as count FROM routes").get() as any;
-    return result?.count > 0;
+  async clearAll(): Promise<void> {
+    await db.execute(sql`DELETE FROM stop_times`);
+    await db.execute(sql`DELETE FROM shapes`);
+    await db.execute(sql`DELETE FROM trips`);
+    await db.execute(sql`DELETE FROM stops`);
+    await db.execute(sql`DELETE FROM routes`);
+    await db.execute(sql`DELETE FROM calendar`);
+  }
+
+  async hasData(): Promise<boolean> {
+    const result = await db.execute(sql`SELECT COUNT(*) AS count FROM routes`);
+    const rows = (result as any).rows ?? [];
+    return Number(rows[0]?.count ?? 0) > 0;
   }
 }
 
-export const storage = new SqliteStorage();
+export const storage = new PostgresStorage();

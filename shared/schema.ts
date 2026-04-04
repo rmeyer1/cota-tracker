@@ -1,9 +1,9 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { pgTable, text, integer, real, serial } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // GTFS Routes
-export const routes = sqliteTable("routes", {
+export const routes = pgTable("routes", {
   routeId: text("route_id").primaryKey(),
   routeShortName: text("route_short_name").notNull(),
   routeLongName: text("route_long_name").notNull(),
@@ -12,17 +12,19 @@ export const routes = sqliteTable("routes", {
   routeType: integer("route_type"),
 });
 
-// GTFS Stops
-export const stops = sqliteTable("stops", {
+// GTFS Stops — lat/lon as real columns; PostGIS geography(POINT, 4326) added via migration
+export const stops = pgTable("stops", {
   stopId: text("stop_id").primaryKey(),
   stopName: text("stop_name").notNull(),
   stopLat: real("stop_lat").notNull(),
   stopLon: real("stop_lon").notNull(),
   stopCode: text("stop_code"),
+  // PostGIS geography(POINT, 4326) column for spatial queries
+  // Use raw SQL migration to create and index this column
 });
 
 // GTFS Trips
-export const trips = sqliteTable("trips", {
+export const trips = pgTable("trips", {
   tripId: text("trip_id").primaryKey(),
   routeId: text("route_id").notNull(),
   serviceId: text("service_id").notNull(),
@@ -32,8 +34,8 @@ export const trips = sqliteTable("trips", {
 });
 
 // GTFS Stop Times
-export const stopTimes = sqliteTable("stop_times", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const stopTimes = pgTable("stop_times", {
+  id: serial("id").primaryKey(),
   tripId: text("trip_id").notNull(),
   stopId: text("stop_id").notNull(),
   arrivalTime: text("arrival_time").notNull(),
@@ -42,8 +44,8 @@ export const stopTimes = sqliteTable("stop_times", {
 });
 
 // GTFS Shapes (route geometry)
-export const shapes = sqliteTable("shapes", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const shapes = pgTable("shapes", {
+  id: serial("id").primaryKey(),
   shapeId: text("shape_id").notNull(),
   shapePtLat: real("shape_pt_lat").notNull(),
   shapePtLon: real("shape_pt_lon").notNull(),
@@ -51,7 +53,7 @@ export const shapes = sqliteTable("shapes", {
 });
 
 // GTFS Calendar
-export const calendar = sqliteTable("calendar", {
+export const calendar = pgTable("calendar", {
   serviceId: text("service_id").primaryKey(),
   monday: integer("monday").notNull(),
   tuesday: integer("tuesday").notNull(),
