@@ -16,7 +16,7 @@ interface Vehicle {
   currentStatus: string;
 }
 
-interface RouteShape {
+export interface RouteShape {
   routeId: string;
   routeColor: string;
   routeName: string;
