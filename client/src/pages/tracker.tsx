@@ -1,13 +1,14 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import BusMap, { type MapControls, type TrafficIncident, type TrafficCamera } from "@/components/BusMap";
+import BusMap, { type MapControls, type TrafficIncident, type TrafficCamera, type InterpolatedVehicleData } from "@/components/BusMap";
 import ETAPanel from "@/components/ETAPanel";
 import RouteSelector from "@/components/RouteSelector";
 import WeatherBar from "@/components/WeatherBar";
 import AlertsBanner from "@/components/AlertsBanner";
 import { useUserLocation } from "@/hooks/use-location";
 import { useTheme } from "@/hooks/use-theme";
+import { useInterpolatedVehicles } from "@/hooks/useInterpolatedVehicles";
 import { PerplexityAttribution } from "@/components/PerplexityAttribution";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -71,8 +72,11 @@ export default function TrackerPage() {
     count: number;
   }>({
     queryKey: ["/api/vehicles"],
-    refetchInterval: 10000,
+    refetchInterval: 15000,
   });
+
+  // Fetch interpolated vehicles for smooth route-based animations
+  const { data: interpolatedData } = useInterpolatedVehicles(selectedRouteId, 15000);
 
   // Fetch route shapes when a route is selected
   const { data: routeShapeData } = useQuery<{
@@ -94,7 +98,7 @@ export default function TrackerPage() {
     enabled: boolean;
   }>({
     queryKey: ["/api/traffic"],
-    refetchInterval: 10000, // 10 seconds (same as bus vehicles)
+    refetchInterval: 15000, // 15 seconds (matches GTFS-RT feed SLA)
   });
 
   const vehicles = vehiclesData?.vehicles || [];
@@ -243,6 +247,8 @@ export default function TrackerPage() {
               trafficIncidents={trafficIncidents}
               trafficCameras={trafficCameras}
               showCameras={showCameras}
+              interpolatedVehicles={interpolatedData?.vehicles}
+              interpolatedShapes={interpolatedData?.shapes}
             />
           )}
 
