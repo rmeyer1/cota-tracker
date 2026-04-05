@@ -1,7 +1,10 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
 // Use VITE_API_URL env var (set on Vercel) or fallback to relative path
-const API_BASE = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) || "";
+const API_BASE = (typeof import.meta.env !== 'undefined' && import.meta.env.VITE_API_URL) || "";
+
+// Ensure API_BASE ends with / for proper URL construction
+const API_BASE_URL = API_BASE ? API_BASE.replace(/\/$/, '') : "";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -15,7 +18,9 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const res = await fetch(`${API_BASE}${url}`, {
+  // Ensure proper URL construction
+  const fullUrl = API_BASE_URL ? `${API_BASE_URL}${url}` : url;
+  const res = await fetch(fullUrl, {
     method,
     headers: data ? { "Content-Type": "application/json" } : {},
     body: data ? JSON.stringify(data) : undefined,
@@ -31,7 +36,10 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(`${API_BASE}${queryKey.join("/")}`);
+    // Ensure proper URL construction - queryKey like ["/api/routes"]
+    const path = queryKey.join("/");
+    const fullUrl = API_BASE_URL ? `${API_BASE_URL}${path}` : path;
+    const res = await fetch(fullUrl);
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;
