@@ -1,11 +1,23 @@
 import 'dotenv/config';
 import express, { type Request, Response, NextFunction } from "express";
+import cors from "cors";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 
 const app = express();
 const httpServer = createServer(app);
+
+// Enable CORS for Vercel frontend
+app.use(cors({
+  origin: [
+    "https://cota-tracker.vercel.app",
+    "http://localhost:3000",
+    "http://localhost:5000"
+  ],
+  methods: ["GET", "POST", "OPTIONS"],
+  credentials: false
+}));
 
 declare module "http" {
   interface IncomingMessage {
