@@ -142,9 +142,27 @@ export function useTrackerData(): TrackerDataReturn {
   const {
     data: routesData,
     isLoading: routesLoading,
+    error: routesError,
   } = useQuery<RoutesResponse>({
     queryKey: ["/api/routes"],
   });
+
+  // Debug logging for routes
+  useEffect(() => {
+    console.log("[Debug Routes] Loading:", routesLoading);
+    console.log("[Debug Routes] Data:", routesData);
+    console.log("[Debug Routes] Error:", routesError);
+    console.log("[Debug Routes] API_URL:", import.meta.env.VITE_API_URL);
+    
+    // Manual test fetch
+    fetch('/api/routes')
+      .then(r => {
+        console.log("[Debug Routes] Manual fetch status:", r.status);
+        return r.json();
+      })
+      .then(data => console.log("[Debug Routes] Manual fetch data:", data))
+      .catch(err => console.error("[Debug Routes] Manual fetch error:", err));
+  }, [routesData, routesLoading, routesError]);
 
   // Fetch real-time vehicles — only poll when WebSocket is NOT connected
   // When WS is connected, vehicle data arrives via setQueryData in onmessage
@@ -164,10 +182,18 @@ export function useTrackerData(): TrackerDataReturn {
   const {
     data: trafficData,
     isLoading: trafficLoading,
+    error: trafficError,
   } = useQuery<TrafficData>({
     queryKey: ["/api/traffic"],
     refetchInterval: REFETCH_INTERVAL,
   });
+
+  // Debug logging for traffic
+  useEffect(() => {
+    console.log("[Debug Traffic] Loading:", trafficLoading);
+    console.log("[Debug Traffic] Data:", trafficData);
+    console.log("[Debug Traffic] Error:", trafficError);
+  }, [trafficData, trafficLoading, trafficError]);
 
   return {
     routes: routesData?.routes || [],
