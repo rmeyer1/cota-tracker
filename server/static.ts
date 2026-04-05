@@ -4,11 +4,14 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+// In CJS (production build), __dirname is native. In ESM (dev), use import.meta.url.
+// Since esbuild bundles to CJS where import.meta is empty, we guard against undefined.
+const currentDir = typeof import.meta !== "undefined" && import.meta.url
+  ? dirname(fileURLToPath(import.meta.url))
+  : __dirname;
 
 export function serveStatic(app: Express) {
-  const distPath = path.resolve(__dirname, "..", "dist", "public");
+  const distPath = path.resolve(currentDir, "..", "dist", "public");
   if (!fs.existsSync(distPath)) {
     throw new Error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`,
