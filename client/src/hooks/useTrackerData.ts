@@ -62,61 +62,67 @@ export function useTrackerData(): TrackerDataReturn {
   // React state so refetchInterval re-evaluates reactively when WS connects/disconnects
   const [wsConnected, setWsConnected] = useState(false);
 
-  const connectWebSocket = useCallback(() => {
-    // Don't connect if already connected or connecting
-    if (
-      wsRef.current?.readyState === WebSocket.OPEN ||
-      wsRef.current?.readyState === WebSocket.CONNECTING
-    ) {
-      return;
-    }
+ const connectWebSocket = useCallback(() => {
+  // Don't connect if already connected or connecting
+  if (
+    wsRef.current?.readyState === WebSocket.OPEN ||
+    wsRef.current?.readyState === WebSocket.CONNECTING
+  ) {
+    return;
+  }
 
-    const apiUrl = (typeof import.meta !== 'undefined' && import.meta.env?.NEXT_PUBLIC_API_URL) || "";
-    const wsProtocol = apiUrl.startsWith("https") ? "wss:" : "ws:";
-    const wsHost = apiUrl.replace(/^https?:\/\//, "").replace(/^https?:\/\//, "");
-    const wsUrl = `${wsProtocol}//${wsHost}/ws/vehicles`;
+  // ────── NEW: much more robust URL logic ──────
+  let wsUrl = import.meta.env.VITE_WS_URL; // ← preferred (set in Vercel)
 
-    try {
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
+  // Fallback for local dev (if you didn't set VITE_WS_URL locally)
+  if (!wsUrl) {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    wsUrl = `${protocol}//${window.location.host}/ws/vehicles`;
+  }
 
-      ws.onopen = () => {
-        console.log("[WS] Connected to vehicle updates");
-        setWsConnected(true);
-      };
+  console.log("[WS] Connecting to:", wsUrl);
 
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === "vehicle_update") {
-            queryClient.setQueryData<VehiclesResponse>(["/api/vehicles"], {
-              vehicles: data.vehicles,
-              lastUpdated: data.timestamp,
-              count: data.vehicleCount,
-            });
-          }
-        } catch (e) {
-          console.error("[WS] Failed to parse message:", e);
+  try {
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      console.log("[WS] Connected to vehicle updates");
+      setWsConnected(true);
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "vehicle_update") {
+          queryClient.setQueryData<VehiclesResponse>(["/api/vehicles"], {
+            vehicles: data.vehicles,
+            lastUpdated: data.timestamp,
+            count: data.vehicleCount,
+          });
         }
-      };
+      } catch (e) {
+        console.error("[WS] Failed to parse message:", e);
+      }
+    };
 
-      ws.onclose = () => {
-        console.log("[WS] Disconnected, falling back to polling");
-        setWsConnected(false);
-        wsRef.current = null;
-        reconnectTimeoutRef.current = setTimeout(() => {
-          connectWebSocket();
-        }, WS_RECONNECT_INTERVAL);
-      };
-
-      ws.onerror = () => {
-        // Let onclose handle cleanup
-      };
-    } catch (e) {
-      console.warn("[WS] Failed to create WebSocket, using polling");
+    ws.onclose = () => {
+      console.log("[WS] Disconnected, falling back to polling");
       setWsConnected(false);
-    }
-  }, [queryClient]);
+      wsRef.current = null;
+      reconnectTimeoutRef.current = setTimeout(() => {
+        connectWebSocket();
+      }, WS_RECONNECT_INTERVAL);
+    };
+
+    ws.onerror = (err) => {
+      console.error("[WS] WebSocket error:", err);
+    };
+  } catch (e) {
+    console.warn("[WS] Failed to create WebSocket, using polling", e);
+    setWsConnected(false);
+  }
+}, [queryClient]);
 
   useEffect(() => {
     connectWebSocket();
