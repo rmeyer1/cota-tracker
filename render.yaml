@@ -8,7 +8,7 @@ services:
     env: node
     region: ohio  # closest to COTA
     plan: starter  # $7/month - sufficient for this use case
-    buildCommand: npm install --include=dev
+    buildCommand: npm install
     startCommand: npm run start
     healthCheckPath: /api/status
     envVars:
