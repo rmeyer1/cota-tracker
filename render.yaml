@@ -1,0 +1,35 @@
+# Render Blueprint - https://render.com/docs/blueprint-spec
+# Deploy with: render blueprint create
+
+services:
+  # Web Service - runs the Express server 24/7
+  - type: web
+    name: cota-tracker-api
+    env: node
+    region: ohio  # closest to COTA
+    plan: starter  # $7/month - sufficient for this use case
+    buildCommand: npm install
+    startCommand: npm run start
+    healthCheckPath: /api/status
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        sync: false  # Set in Render dashboard
+      - key: REDIS_URL
+        sync: false  # Set in Render dashboard
+      - key: GTFS_DATA_DIR
+        value: /data
+    disk:
+      name: gtfs-data
+      mountPath: /data
+      sizeGB: 1
+
+  # Redis - persistent cache
+  - type: redis
+    name: cota-tracker-redis
+    plan: starter  # $5/month - 512MB Redis
+    region: ohio
+    ipAllowList: []  # Allow access from web service only

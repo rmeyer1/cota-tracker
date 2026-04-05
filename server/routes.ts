@@ -11,6 +11,12 @@ import {
 } from "./gtfs-realtime";
 import { getCachedWeather, startWeatherPolling } from "./weather";
 import { getCachedTraffic, startTrafficPolling } from "./traffic";
+import {
+  initRedis,
+  subscribeToVehicleUpdates,
+  isRedisAvailable,
+  redisHealthCheck,
+} from "./redis-cache";
 
 // Haversine distance in km (used only for vehicle-to-stop distance in ETA calculation)
 function haversine(
@@ -32,9 +38,20 @@ function haversine(
 }
 
 export async function registerRoutes(server: Server, app: Express) {
+  // Initialize Redis cache
+  await initRedis();
+  
+  // Subscribe to Redis pub/sub updates (for multi-instance sync)
+  subscribeToVehicleUpdates((data) => {
+    console.log(`[Redis] Received pub/sub update, timestamp: ${data.timestamp}`);
+    // When another instance publishes an update, we receive it here
+    // The local cache is already updated via the polling, so no action needed
+    // This is primarily for instances that might have missed a poll cycle
+  });
+  
   // Initialize GTFS data on startup
   initializeGtfs();
-
+  
   // Start weather and traffic polling
   startWeatherPolling();
   startTrafficPolling();
@@ -283,6 +300,8 @@ export async function registerRoutes(server: Server, app: Express) {
     const lastUpdate = getLastFetchTime();
     const weather = getCachedWeather();
     const traffic = getCachedTraffic();
+    const redisHealth = await redisHealthCheck();
+    
     res.json({
       gtfsLoaded: hasData,
       vehicleCount,
@@ -292,6 +311,7 @@ export async function registerRoutes(server: Server, app: Express) {
       trafficIncidentCount: traffic.incidents.length,
       lastRealtimeUpdate: lastUpdate,
       uptime: process.uptime(),
+      redis: redisHealth,
     });
   });
 }
