@@ -1,7 +1,7 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
-// Use NEXT_PUBLIC_API_URL env var (set on Vercel) or fallback to relative path
-const API_BASE = (typeof import.meta !== 'undefined' && import.meta.env?.NEXT_PUBLIC_API_URL) || "";
+// Use VITE_API_URL env var (set on Vercel) or fallback to relative path
+const API_BASE = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) || "";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
