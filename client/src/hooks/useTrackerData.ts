@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { apiRequest } from "@/lib/queryClient";
 import type { TrafficIncident, TrafficCamera } from "@/components/BusMap";
 
@@ -40,18 +40,6 @@ interface VehiclesResponse {
   count: number;
 }
 
-interface VehicleUpdateMessage {
-  type: "vehicle_update";
-  timestamp: number;
-  vehicles: Vehicle[];
-  vehicleCount: number;
-}
-
-interface HeartbeatMessage {
-  type: "heartbeat";
-  timestamp: number;
-}
-
 interface TrackerDataReturn {
   routes: Route[];
   vehicles: Vehicle[];
@@ -63,19 +51,23 @@ interface TrackerDataReturn {
   wsConnected: boolean;
 }
 
-const REFETCH_INTERVAL = 15000; // GTFS-RT feed SLA
+const REFETCH_INTERVAL = 15000; // GTFS-RT feed SLA — only used as polling fallback
 const WS_RECONNECT_INTERVAL = 3000;
 
 export function useTrackerData(): TrackerDataReturn {
   const queryClient = useQueryClient();
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const wsConnectedRef = useRef(false);
 
-  // Connect to WebSocket for real-time vehicle updates
+  // React state so refetchInterval re-evaluates reactively when WS connects/disconnects
+  const [wsConnected, setWsConnected] = useState(false);
+
   const connectWebSocket = useCallback(() => {
     // Don't connect if already connected or connecting
-    if (wsRef.current?.readyState === WebSocket.OPEN || wsRef.current?.readyState === WebSocket.CONNECTING) {
+    if (
+      wsRef.current?.readyState === WebSocket.OPEN ||
+      wsRef.current?.readyState === WebSocket.CONNECTING
+    ) {
       return;
     }
 
@@ -88,13 +80,12 @@ export function useTrackerData(): TrackerDataReturn {
 
       ws.onopen = () => {
         console.log("[WS] Connected to vehicle updates");
-        wsConnectedRef.current = true;
-        queryClient.setQueryDefaults(["/api/vehicles"], { refetchInterval: false });
+        setWsConnected(true);
       };
 
       ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data) as VehicleUpdateMessage | HeartbeatMessage;
+          const data = JSON.parse(event.data);
           if (data.type === "vehicle_update") {
             queryClient.setQueryData<VehiclesResponse>(["/api/vehicles"], {
               vehicles: data.vehicles,
@@ -108,21 +99,20 @@ export function useTrackerData(): TrackerDataReturn {
       };
 
       ws.onclose = () => {
-        console.log("[WS] Disconnected, reconnecting...");
-        wsConnectedRef.current = false;
+        console.log("[WS] Disconnected, falling back to polling");
+        setWsConnected(false);
         wsRef.current = null;
-        // Reconnect after delay
         reconnectTimeoutRef.current = setTimeout(() => {
           connectWebSocket();
         }, WS_RECONNECT_INTERVAL);
       };
 
       ws.onerror = () => {
-        console.warn("[WS] Connection error, falling back to polling");
-        wsConnectedRef.current = false;
+        // Let onclose handle cleanup
       };
     } catch (e) {
-      console.warn("[WS] Failed to create WebSocket, using polling fallback");
+      console.warn("[WS] Failed to create WebSocket, using polling");
+      setWsConnected(false);
     }
   }, [queryClient]);
 
@@ -148,18 +138,21 @@ export function useTrackerData(): TrackerDataReturn {
     queryKey: ["/api/routes"],
   });
 
-  // Fetch real-time vehicles (fallback when WebSocket unavailable)
+  // Fetch real-time vehicles — only poll when WebSocket is NOT connected
+  // When WS is connected, vehicle data arrives via setQueryData in onmessage
   const {
     data: vehiclesData,
     isLoading: vehiclesLoading,
     dataUpdatedAt,
   } = useQuery<VehiclesResponse>({
     queryKey: ["/api/vehicles"],
-    // Keep polling as fallback when WebSocket isn't connected
-    refetchInterval: wsConnectedRef.current ? false : REFETCH_INTERVAL,
+    // Only poll as fallback when WebSocket is unavailable
+    refetchInterval: wsConnected ? false : REFETCH_INTERVAL,
+    // Disable automatic refetch when WS is connected (WS message triggers update)
+    enabled: !wsConnected,
   });
 
-  // Fetch traffic incidents & cameras
+  // Fetch traffic incidents & cameras — no WebSocket for traffic, always poll
   const {
     data: trafficData,
     isLoading: trafficLoading,
@@ -180,6 +173,6 @@ export function useTrackerData(): TrackerDataReturn {
     vehiclesLoading,
     trafficLoading,
     vehiclesDataUpdatedAt: dataUpdatedAt,
-    wsConnected: wsConnectedRef.current,
+    wsConnected,
   };
 }
