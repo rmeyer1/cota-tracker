@@ -7,6 +7,7 @@ import {
   publishVehicleUpdate,
   isRedisAvailable,
 } from "./redis-cache";
+import { broadcastVehicleUpdate } from "./websocket";
 
 const VEHICLE_POSITIONS_URL = "https://gtfs-rt.cota.vontascloud.com/TMGTFSRealTimeWebService/Vehicle/VehiclePositions.pb";
 const TRIP_UPDATES_URL = "https://gtfs-rt.cota.vontascloud.com/TMGTFSRealTimeWebService/TripUpdate/TripUpdates.pb";
@@ -291,6 +292,7 @@ export async function fetchVehiclePositions(): Promise<VehiclePosition[]> {
     // Cache in Redis and publish update
     await cacheVehicles(vehicles);
     if (isRedisAvailable()) await publishVehicleUpdate();
+    broadcastVehicleUpdate(vehicles);
     
     return vehicles;
   } catch (err) {

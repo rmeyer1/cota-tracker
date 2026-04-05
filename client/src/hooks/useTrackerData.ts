@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useCallback } from "react";
 import { apiRequest } from "@/lib/queryClient";
 import type { TrafficIncident, TrafficCamera } from "@/components/BusMap";
 
@@ -39,6 +40,18 @@ interface VehiclesResponse {
   count: number;
 }
 
+interface VehicleUpdateMessage {
+  type: "vehicle_update";
+  timestamp: number;
+  vehicles: Vehicle[];
+  vehicleCount: number;
+}
+
+interface HeartbeatMessage {
+  type: "heartbeat";
+  timestamp: number;
+}
+
 interface TrackerDataReturn {
   routes: Route[];
   vehicles: Vehicle[];
@@ -47,11 +60,86 @@ interface TrackerDataReturn {
   vehiclesLoading: boolean;
   trafficLoading: boolean;
   vehiclesDataUpdatedAt: number | undefined;
+  wsConnected: boolean;
 }
 
-const REFETCH_INTERVAL = 15000; // matches GTFS-RT feed SLA
+const REFETCH_INTERVAL = 15000; // GTFS-RT feed SLA
+const WS_RECONNECT_INTERVAL = 3000;
 
 export function useTrackerData(): TrackerDataReturn {
+  const queryClient = useQueryClient();
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wsConnectedRef = useRef(false);
+
+  // Connect to WebSocket for real-time vehicle updates
+  const connectWebSocket = useCallback(() => {
+    // Don't connect if already connected or connecting
+    if (wsRef.current?.readyState === WebSocket.OPEN || wsRef.current?.readyState === WebSocket.CONNECTING) {
+      return;
+    }
+
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${window.location.host}/ws/vehicles`;
+
+    try {
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log("[WS] Connected to vehicle updates");
+        wsConnectedRef.current = true;
+        queryClient.setQueryDefaults(["/api/vehicles"], { refetchInterval: false });
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data) as VehicleUpdateMessage | HeartbeatMessage;
+          if (data.type === "vehicle_update") {
+            queryClient.setQueryData<VehiclesResponse>(["/api/vehicles"], {
+              vehicles: data.vehicles,
+              lastUpdated: data.timestamp,
+              count: data.vehicleCount,
+            });
+          }
+        } catch (e) {
+          console.error("[WS] Failed to parse message:", e);
+        }
+      };
+
+      ws.onclose = () => {
+        console.log("[WS] Disconnected, reconnecting...");
+        wsConnectedRef.current = false;
+        wsRef.current = null;
+        // Reconnect after delay
+        reconnectTimeoutRef.current = setTimeout(() => {
+          connectWebSocket();
+        }, WS_RECONNECT_INTERVAL);
+      };
+
+      ws.onerror = () => {
+        console.warn("[WS] Connection error, falling back to polling");
+        wsConnectedRef.current = false;
+      };
+    } catch (e) {
+      console.warn("[WS] Failed to create WebSocket, using polling fallback");
+    }
+  }, [queryClient]);
+
+  useEffect(() => {
+    connectWebSocket();
+
+    return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, [connectWebSocket]);
+
   // Fetch all routes
   const {
     data: routesData,
@@ -60,14 +148,15 @@ export function useTrackerData(): TrackerDataReturn {
     queryKey: ["/api/routes"],
   });
 
-  // Fetch real-time vehicles
+  // Fetch real-time vehicles (fallback when WebSocket unavailable)
   const {
     data: vehiclesData,
     isLoading: vehiclesLoading,
     dataUpdatedAt,
   } = useQuery<VehiclesResponse>({
     queryKey: ["/api/vehicles"],
-    refetchInterval: REFETCH_INTERVAL,
+    // Keep polling as fallback when WebSocket isn't connected
+    refetchInterval: wsConnectedRef.current ? false : REFETCH_INTERVAL,
   });
 
   // Fetch traffic incidents & cameras
@@ -91,5 +180,6 @@ export function useTrackerData(): TrackerDataReturn {
     vehiclesLoading,
     trafficLoading,
     vehiclesDataUpdatedAt: dataUpdatedAt,
+    wsConnected: wsConnectedRef.current,
   };
 }
