@@ -1,5 +1,12 @@
 import protobuf from "protobufjs";
 import path from "path";
+import {
+  cacheVehicles,
+  cacheTripUpdates,
+  cacheAlerts,
+  publishVehicleUpdate,
+  isRedisAvailable,
+} from "./redis-cache";
 
 const VEHICLE_POSITIONS_URL = "https://gtfs-rt.cota.vontascloud.com/TMGTFSRealTimeWebService/Vehicle/VehiclePositions.pb";
 const TRIP_UPDATES_URL = "https://gtfs-rt.cota.vontascloud.com/TMGTFSRealTimeWebService/TripUpdate/TripUpdates.pb";
@@ -280,6 +287,11 @@ export async function fetchVehiclePositions(): Promise<VehiclePosition[]> {
     cachedVehicles = vehicles;
     lastFetchTime = Date.now();
     console.log(`[GTFS-RT] Fetched ${vehicles.length} vehicle positions`);
+    
+    // Cache in Redis and publish update
+    await cacheVehicles(vehicles);
+    if (isRedisAvailable()) await publishVehicleUpdate();
+    
     return vehicles;
   } catch (err) {
     console.error("[GTFS-RT] Error fetching vehicle positions:", err);
@@ -320,6 +332,10 @@ export async function fetchTripUpdates(): Promise<TripUpdate[]> {
     
     cachedTripUpdates = updates;
     console.log(`[GTFS-RT] Fetched ${updates.length} trip updates`);
+    
+    // Cache in Redis
+    await cacheTripUpdates(updates);
+    
     return updates;
   } catch (err) {
     console.error("[GTFS-RT] Error fetching trip updates:", err);
@@ -401,6 +417,10 @@ export async function fetchServiceAlerts(): Promise<ServiceAlert[]> {
     
     cachedAlerts = alerts;
     console.log(`[GTFS-RT] Fetched ${alerts.length} service alerts`);
+    
+    // Cache in Redis
+    await cacheAlerts(alerts);
+    
     return alerts;
   } catch (err) {
     console.error("[GTFS-RT] Error fetching service alerts:", err);
