@@ -87,7 +87,13 @@
     "tsx": "^4.20.5",
     "esbuild": "^0.24.2",
     "vite": "^5.4.21",
-    "@esbuild-kit/esm-loader": "^2.6.5"
+    "@esbuild-kit/esm-loader": "^2.6.5",
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.4.27",
+    "drizzle-kit": "^0.31.10",
+    "postcss": "^8.4.47",
+    "tailwindcss": "3.4.17",
+    "typescript": "^5.6.3"
   },
   "devDependencies": {
     "@tailwindcss/typography": "0.5.15",
@@ -101,13 +107,7 @@
     "@types/pg": "^8.20.0",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
-    "@types/ws": "^8.18.1",
-    "@vitejs/plugin-react": "^4.7.0",
-    "autoprefixer": "^10.4.27",
-    "drizzle-kit": "^0.31.10",
-    "postcss": "^8.4.47",
-    "tailwindcss": "3.4.17",
-    "typescript": "^5.6.3"
+    "@types/ws": "^8.18.1"
   },
   "overrides": {
     "drizzle-kit": {
