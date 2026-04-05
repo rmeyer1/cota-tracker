@@ -71,8 +71,10 @@ export function useTrackerData(): TrackerDataReturn {
       return;
     }
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws/vehicles`;
+    const apiUrl = (typeof import.meta !== 'undefined' && import.meta.env?.NEXT_PUBLIC_API_URL) || "";
+    const wsProtocol = apiUrl.startsWith("https") ? "wss:" : "ws:";
+    const wsHost = apiUrl.replace(/^https?:\/\//, "").replace(/^https?:\/\//, "");
+    const wsUrl = `${wsProtocol}//${wsHost}/ws/vehicles`;
 
     try {
       const ws = new WebSocket(wsUrl);
