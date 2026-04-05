@@ -17,6 +17,7 @@ import {
   isRedisAvailable,
   redisHealthCheck,
 } from "./redis-cache";
+import { initWebSocket, getClientCount, isWebSocketAvailable } from "./websocket";
 
 // Haversine distance in km (used only for vehicle-to-stop distance in ETA calculation)
 function haversine(
@@ -48,6 +49,9 @@ export async function registerRoutes(server: Server, app: Express) {
     // The local cache is already updated via the polling, so no action needed
     // This is primarily for instances that might have missed a poll cycle
   });
+  
+  // Initialize WebSocket server for real-time vehicle updates
+  initWebSocket(server);
   
   // Initialize GTFS data on startup
   initializeGtfs();
@@ -312,6 +316,17 @@ export async function registerRoutes(server: Server, app: Express) {
       lastRealtimeUpdate: lastUpdate,
       uptime: process.uptime(),
       redis: redisHealth,
+      ws: {
+        available: isWebSocketAvailable(),
+        clientCount: getClientCount(),
+      },
+    });
+  });
+
+  app.get("/api/ws-status", (_req, res) => {
+    res.json({
+      available: isWebSocketAvailable(),
+      clientCount: getClientCount(),
     });
   });
 }
