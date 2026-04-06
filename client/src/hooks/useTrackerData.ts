@@ -142,17 +142,9 @@ export function useTrackerData(): TrackerDataReturn {
   const {
     data: routesData,
     isLoading: routesLoading,
-    error: routesError,
   } = useQuery<RoutesResponse>({
     queryKey: ["/api/routes"],
   });
-
-  // Debug logging for routes
-  useEffect(() => {
-    console.log("[useTrackerData] routesData:", routesData);
-    console.log("[useTrackerData] routesLoading:", routesLoading);
-    console.log("[useTrackerData] routesError:", routesError);
-  }, [routesData, routesLoading, routesError]);
 
   // Fetch real-time vehicles — only poll when WebSocket is NOT connected
   // When WS is connected, vehicle data arrives via setQueryData in onmessage
