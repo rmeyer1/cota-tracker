@@ -22,11 +22,6 @@ export default function RouteSelector({
   onSelectRoute,
   vehicleCounts,
 }: RouteSelectorProps) {
-  // Debug logging
-  console.log("[RouteSelector] routes:", routes);
-  console.log("[RouteSelector] routes.length:", routes.length);
-  console.log("[RouteSelector] vehicleCounts:", vehicleCounts);
-
   // Sort routes by short name (numerically if possible)
   const sortedRoutes = [...routes].sort((a, b) => {
     const aNum = parseInt(a.routeShortName);
@@ -35,8 +30,6 @@ export default function RouteSelector({
     return a.routeShortName.localeCompare(b.routeShortName);
   });
 
-  console.log("[RouteSelector] sortedRoutes:", sortedRoutes);
-
   // Filter to only routes with active vehicles
   const activeRoutes = sortedRoutes.filter(
     (r) => (vehicleCounts[r.routeId] || 0) > 0
@@ -44,9 +37,6 @@ export default function RouteSelector({
   const inactiveRoutes = sortedRoutes.filter(
     (r) => (vehicleCounts[r.routeId] || 0) === 0
   );
-
-  console.log("[RouteSelector] activeRoutes:", activeRoutes.length, activeRoutes);
-  console.log("[RouteSelector] inactiveRoutes:", inactiveRoutes.length, inactiveRoutes);
 
   return (
     <div className="p-4" data-testid="route-selector">
@@ -65,13 +55,6 @@ export default function RouteSelector({
       </div>
 
       <ScrollArea className="h-[calc(100vh-520px)] min-h-[200px]">
-        {/* Debug: Show when no routes */}
-        {routes.length === 0 && (
-          <div className="text-xs text-muted-foreground p-4">
-            No routes data available
-          </div>
-        )}
-
         {/* Active routes */}
         {activeRoutes.length > 0 && (
           <div className="mb-3">
