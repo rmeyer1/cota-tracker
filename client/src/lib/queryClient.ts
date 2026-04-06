@@ -1,10 +1,8 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
-// Use VITE_API_URL env var (set on Vercel) or fallback to relative path
-const API_BASE = (typeof import.meta.env !== 'undefined' && import.meta.env.VITE_API_URL) || "";
-
-// Ensure API_BASE ends with / for proper URL construction
-const API_BASE_URL = API_BASE ? API_BASE.replace(/\/$/, '') : "";
+// HARD-CODED FIX: Always use the Render backend URL
+// The env var approach wasn't working due to Vite build issues
+const API_BASE_URL = "https://cota-tracker.onrender.com";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -18,8 +16,10 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  // Ensure proper URL construction
-  const fullUrl = API_BASE_URL ? `${API_BASE_URL}${url}` : url;
+  // Ensure URL always has proper format: base + path
+  // url comes in as "/api/alerts", so we concatenate directly
+  const fullUrl = `${API_BASE_URL}${url}`;
+  console.log("[API Request]", fullUrl);
   const res = await fetch(fullUrl, {
     method,
     headers: data ? { "Content-Type": "application/json" } : {},
@@ -36,9 +36,10 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    // Ensure proper URL construction - queryKey like ["/api/routes"]
     const path = queryKey.join("/");
-    const fullUrl = API_BASE_URL ? `${API_BASE_URL}${path}` : path;
+    // Ensure URL always has proper format: base + path
+    const fullUrl = `${API_BASE_URL}${path}`;
+    console.log("[API Query]", fullUrl);
     const res = await fetch(fullUrl);
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
