@@ -19,7 +19,10 @@ export function TrackerHeader({
   const { theme, toggleTheme } = useTheme();
 
   return (
-    <header className="h-14 shrink-0 flex items-center justify-between px-4 bg-card border-b border-border z-10">
+    <header
+      className="h-14 shrink-0 flex items-center justify-between px-4 bg-card border-b border-border z-10"
+      style={{ paddingTop: "env(safe-area-inset-top)" }}
+    >
       {/* Left: Logo + branding */}
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2">

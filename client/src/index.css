@@ -130,8 +130,24 @@
   * {
     @apply border-border;
   }
+  html {
+    /* iOS Safari: use -webkit-fill-available to fill the full visual viewport
+       without accounting for the URL bar (which is overlaid, not part of layout) */
+    height: -webkit-fill-available;
+    /* Prevent iOS Safari's elastic overscroll at the html root level.
+       Child containers handle their own scrolling. */
+    overflow: hidden;
+  }
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    /* 100dvh = dynamic viewport height; iOS Safari uses this for the visual area
+       excluding the URL bar when visible, preventing the phantom scroll space */
+    min-height: 100dvh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  #root {
+    min-height: 100dvh;
   }
 }
 
