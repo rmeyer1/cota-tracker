@@ -131,6 +131,11 @@
     @apply border-border;
   }
   html {
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
     /* iOS Safari: use -webkit-fill-available to fill the full visual viewport
        without accounting for the URL bar (which is overlaid, not part of layout) */
     height: -webkit-fill-available;
@@ -148,6 +153,8 @@
   }
   #root {
     min-height: 100dvh;
+  }
+}
   }
 }
 
