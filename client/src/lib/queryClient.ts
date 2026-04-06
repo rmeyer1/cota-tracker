@@ -36,10 +36,14 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const path = queryKey.join("/");
+    let path = queryKey.join("/");
+    // Ensure path starts with / for proper URL construction
+    if (!path.startsWith("/")) {
+      path = "/" + path;
+    }
     // Ensure URL always has proper format: base + path
     const fullUrl = `${API_BASE_URL}${path}`;
-    console.log("[API Query]", fullUrl);
+    console.log("[API Query]", fullUrl, "from path:", path);
     const res = await fetch(fullUrl);
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
