@@ -8,7 +8,8 @@ interface MobilePanelToggleProps {
 export function MobilePanelToggle({ panelOpen, onToggle }: MobilePanelToggleProps) {
   return (
     <button
-      className="absolute bottom-4 left-1/2 -translate-x-1/2 md:hidden z-[1000] bg-card border border-border rounded-full px-4 py-2.5 shadow-lg flex items-center gap-2"
+      className="absolute left-1/2 -translate-x-1/2 md:hidden z-[1000] bg-card border border-border rounded-full px-4 py-2.5 shadow-lg flex items-center gap-2"
+      style={{ bottom: "calc(1rem + env(safe-area-inset-bottom))" }}
       onClick={onToggle}
       data-testid="toggle-panel"
     >
