@@ -38,7 +38,7 @@ export default function TrackerPage() {
 
   return (
     <div
-      className="h-screen w-screen flex flex-col overflow-hidden"
+      className="h-dvh w-dvh flex flex-col overflow-hidden"
       data-testid="tracker-page"
     >
       {/* Service Alerts Banner */}
