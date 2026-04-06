@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MapPin, Clock, Navigation, Bus, ChevronRight } from "lucide-react";
+import { formatDistance } from "@/lib/utils";
 
 interface ETAPanelProps {
   userLat: number;
@@ -109,7 +110,7 @@ export default function ETAPanel({ userLat, userLon, selectedStopId }: ETAPanelP
                 </h3>
                 <div className="flex items-center gap-2 mt-0.5">
                   <span className="text-xs text-muted-foreground">
-                    {result.stop.distanceMeters}m away
+                    {formatDistance(result.stop.distanceMeters)} away
                   </span>
                   <span className="text-xs text-muted-foreground">
                     · {result.stop.walkMinutes} min walk
@@ -140,7 +141,7 @@ export default function ETAPanel({ userLat, userLon, selectedStopId }: ETAPanelP
                       {v.routeName}
                     </Badge>
                     <span className="text-xs text-muted-foreground">
-                      {(v.distanceMeters / 1000).toFixed(1)} km away
+                      {formatDistance(v.distanceMeters)} away
                     </span>
                   </div>
                   <div className="flex items-center gap-1">
